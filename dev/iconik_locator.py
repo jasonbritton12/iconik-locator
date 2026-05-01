@@ -1,0 +1,1174 @@
+#!/usr/bin/env python3
+"""
+Iconik Storage Locator v5_0_0
+
+Fast dependency-free locator for Iconik storage origins.
+
+Runtime dependencies:
+  - Python standard library only when run as source.
+  - Packaged macOS binaries are standalone.
+  - On macOS, credentials are stored in Keychain through /usr/bin/security.
+
+Intentional scope:
+  - Single asset/share/UUID lookup.
+  - CSV/TSV batch lookup.
+  - S3, HTTPS, and FULL presigned output modes.
+  - Multi-asset share handling: ERROR, FIRST, ALL.
+  - Multi-source file handling: ERROR, FIRST, ALL.
+
+XLSX support was removed to eliminate pandas/openpyxl. Export Excel-readable CSV
+instead.
+"""
+
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import csv
+import getpass
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+
+
+VERSION = "v5_0_0"
+APP_NAME = "Iconik Storage Locator"
+CONFIG_DIR = os.path.join(
+    os.path.expanduser("~"), "Library", "Application Support", "IconikLocator"
+)
+CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
+KEYCHAIN_SERVICE = "IconikLocator"
+KEYCHAIN_ACCOUNT_APP_ID = "app_id"
+KEYCHAIN_ACCOUNT_AUTH_TOKEN = "auth_token"
+
+UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.I,
+)
+ANY_UUID_RE = re.compile(
+    r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})",
+    re.I,
+)
+ASSET_URL_RE = re.compile(r"/assets?/([0-9a-f-]{36})(?:/|$)", re.I)
+COLLECTION_URL_RE = re.compile(r"/collections?/([0-9a-f-]{36})(?:/|$)", re.I)
+SHARE_PATH_RE = re.compile(r"/shares?/([A-Za-z0-9_-]+)(?:/|$)", re.I)
+SHORT_SHARE_RE = re.compile(r"/u/([A-Za-z0-9_-]+)(?:/|$)", re.I)
+
+VALID_OUTPUTS = ("HTTPS", "S3", "FULL")
+VALID_MULTI = ("ERROR", "FIRST", "ALL")
+
+
+def is_tty() -> bool:
+    try:
+        return sys.stdout.isatty()
+    except Exception:
+        return False
+
+
+class UI:
+    def __init__(self, quiet: bool = False) -> None:
+        self.quiet = quiet
+        self._last_progress = 0.0
+        self._color = is_tty()
+
+    def _style(self, text: str, code: str) -> str:
+        if not self._color:
+            return text
+        return f"\033[{code}m{text}\033[0m"
+
+    def banner(self) -> None:
+        if self.quiet:
+            return
+        print(self._style(f"{APP_NAME} {VERSION}", "1;36"))
+
+    def info(self, msg: str) -> None:
+        if not self.quiet:
+            print(msg)
+
+    def note(self, msg: str) -> None:
+        if not self.quiet:
+            print(self._style(msg, "2"))
+
+    def warn(self, msg: str) -> None:
+        print(self._style(f"WARNING: {msg}", "33"), file=sys.stderr)
+
+    def err(self, msg: str) -> None:
+        print(self._style(f"ERROR: {msg}", "31"), file=sys.stderr)
+
+    def ask(self, prompt: str, default: Optional[str] = None) -> str:
+        suffix = f" [{default}]" if default not in (None, "") else ""
+        raw = input(f"{prompt}{suffix}: ").strip()
+        if raw == "" and default is not None:
+            return default
+        return raw
+
+    def secret(self, prompt: str) -> str:
+        return getpass.getpass(prompt + ": ").strip()
+
+    def confirm(self, prompt: str, default: bool = True) -> bool:
+        suffix = "Y/n" if default else "y/N"
+        raw = input(f"{prompt} [{suffix}]: ").strip().lower()
+        if raw == "":
+            return default
+        return raw in ("y", "yes")
+
+    def progress(self, msg: str, force: bool = False) -> None:
+        if self.quiet:
+            return
+        now = time.time()
+        if not force and (now - self._last_progress) < 0.2:
+            return
+        self._last_progress = now
+        if is_tty():
+            print("\r" + msg[:220] + " " * 10, end="", flush=True)
+        else:
+            print(msg)
+
+    def progress_done(self) -> None:
+        if not self.quiet and is_tty():
+            print("")
+
+    def box(self, label: str, value: str) -> None:
+        if self.quiet:
+            print(value)
+            return
+        print("")
+        print(self._style(label, "1;36"))
+        print(value)
+
+
+class ConfigStore:
+    SENSITIVE = {"app_id", "auth_token"}
+
+    @staticmethod
+    def load() -> Dict[str, Any]:
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def save(data: Dict[str, Any]) -> None:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        safe = {k: v for k, v in data.items() if k not in ConfigStore.SENSITIVE}
+        tmp = CONFIG_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(safe, f, indent=2, sort_keys=True)
+        os.replace(tmp, CONFIG_PATH)
+        try:
+            os.chmod(CONFIG_PATH, 0o600)
+        except Exception:
+            pass
+
+    @classmethod
+    def update(cls, **kwargs: Any) -> None:
+        data = cls.load()
+        data.update(kwargs)
+        cls.save(data)
+
+    @staticmethod
+    def reset() -> None:
+        try:
+            os.remove(CONFIG_PATH)
+        except FileNotFoundError:
+            pass
+
+
+class KeychainStore:
+    @staticmethod
+    def available() -> bool:
+        return sys.platform == "darwin" and shutil.which("security") is not None
+
+    @staticmethod
+    def _run(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["security", *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    @classmethod
+    def get(cls, account: str) -> str:
+        if not cls.available():
+            return ""
+        proc = cls._run(
+            ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account, "-w"]
+        )
+        if proc.returncode != 0:
+            return ""
+        return (proc.stdout or "").strip()
+
+    @classmethod
+    def set(cls, account: str, value: str) -> None:
+        if not value or not cls.available():
+            return
+        proc = cls._run(
+            ["add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", account, "-w", value]
+        )
+        if proc.returncode != 0:
+            msg = (proc.stderr or proc.stdout or "").strip()
+            raise RuntimeError(msg or "security command failed")
+
+    @classmethod
+    def delete(cls, account: str) -> None:
+        if not cls.available():
+            return
+        cls._run(["delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account])
+
+
+@dataclass(frozen=True)
+class Auth:
+    host: str
+    app_id: str
+    auth_token: str
+
+
+class IconikClient:
+    def __init__(self, auth: Auth, timeout_s: int = 30, retries: int = 4) -> None:
+        self.auth = auth
+        self.timeout_s = timeout_s
+        self.retries = retries
+        self._storage_map: Optional[Dict[str, Dict[str, Any]]] = None
+
+    def _abs_url(self, path: str) -> str:
+        host = self.auth.host.strip().rstrip("/") or "https://app.iconik.io"
+        if not host.startswith(("http://", "https://")):
+            host = "https://" + host
+        if not path.startswith("/"):
+            path = "/" + path
+        return host + path
+
+    def get(self, path: str) -> Any:
+        url = self._abs_url(path)
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "App-ID": self.auth.app_id,
+            "Auth-Token": self.auth.auth_token,
+        }
+        last_err: Optional[BaseException] = None
+        for attempt in range(self.retries):
+            try:
+                req = urllib.request.Request(url, headers=headers, method="GET")
+                with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                    raw = resp.read()
+                if not raw:
+                    return {}
+                return json.loads(raw.decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                if e.code == 401:
+                    raise PermissionError("Unauthorized. Check App-ID and Auth-Token.") from e
+                if e.code == 403:
+                    raise PermissionError(
+                        "Forbidden. The user needs asset/file read access and original-download permission."
+                    ) from e
+                if e.code == 404:
+                    raise FileNotFoundError(path) from e
+                if e.code in (429, 500, 502, 503, 504) and attempt < self.retries - 1:
+                    sleep_s = retry_delay(e, attempt)
+                    time.sleep(sleep_s)
+                    last_err = e
+                    continue
+                raise
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+                if attempt < self.retries - 1:
+                    time.sleep(min(2 ** attempt, 20))
+                    last_err = e
+                    continue
+                raise
+        if last_err:
+            raise RuntimeError(str(last_err))
+        raise RuntimeError("Request failed.")
+
+    def get_asset(self, asset_id: str) -> Dict[str, Any]:
+        try:
+            data = self.get(f"/API/assets/v1/assets/{asset_id}/")
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def list_share_assets(self, share_id: str) -> List[Dict[str, Any]]:
+        try:
+            data = self.get(f"/API/acls/v1/shares/{quote_path(share_id)}/assets/")
+            return objects_from(data)
+        except FileNotFoundError:
+            pass
+        data = self.get(f"/API/acls/v1/shares/{quote_path(share_id)}/")
+        if isinstance(data, dict):
+            for key in ("asset_id", "object_id", "id"):
+                value = data.get(key)
+                if isinstance(value, str) and UUID_RE.match(value):
+                    return [{"id": value}]
+        return []
+
+    def list_files(self, asset_id: str) -> List[Dict[str, Any]]:
+        data = self.get(f"/API/files/v1/assets/{asset_id}/files/")
+        return objects_from(data)
+
+    def download_url(self, asset_id: str, file_id: str) -> Dict[str, Any]:
+        data = self.get(
+            f"/API/files/v1/assets/{asset_id}/files/{quote_path(file_id)}/download_url/"
+        )
+        return data if isinstance(data, dict) else {}
+
+    def list_storages(self) -> List[Dict[str, Any]]:
+        storages: List[Dict[str, Any]] = []
+        path: Optional[str] = "/API/files/v1/storages/?page=1&per_page=200"
+        while path:
+            data = self.get(path)
+            objects = objects_from(data)
+            if not objects:
+                break
+            storages.extend(objects)
+            next_url = data.get("next_url") if isinstance(data, dict) else None
+            path = normalize_next_url(next_url, default_prefix="/API/files")
+        return storages
+
+    def storage_map(self) -> Dict[str, Dict[str, Any]]:
+        if self._storage_map is None:
+            storage_map: Dict[str, Dict[str, Any]] = {}
+            try:
+                for storage in self.list_storages():
+                    storage_id = storage.get("id")
+                    if not isinstance(storage_id, str):
+                        continue
+                    storage_map[storage_id] = {
+                        "storage_name": storage.get("name") or "",
+                        "storage_purpose": storage.get("purpose") or "",
+                        "storage_method": storage.get("method") or storage.get("storage_method") or "",
+                    }
+            except Exception:
+                storage_map = {}
+            self._storage_map = storage_map
+        return self._storage_map
+
+
+def quote_path(value: str) -> str:
+    return urllib.parse.quote(value, safe="")
+
+
+def normalize_next_url(next_url: Any, default_prefix: str) -> Optional[str]:
+    if not isinstance(next_url, str) or not next_url.strip():
+        return None
+    value = next_url.strip()
+    if value.startswith("/API/"):
+        return value
+    if value.startswith("/"):
+        return default_prefix.rstrip("/") + value
+    return default_prefix.rstrip("/") + "/" + value
+
+
+def retry_delay(err: urllib.error.HTTPError, attempt: int) -> float:
+    retry_after = err.headers.get("Retry-After") if err.headers else None
+    if retry_after and retry_after.isdigit():
+        return float(min(int(retry_after), 60))
+    return float(min(2 ** attempt, 20))
+
+
+def objects_from(data: Any) -> List[Dict[str, Any]]:
+    if isinstance(data, dict) and isinstance(data.get("objects"), list):
+        return [obj for obj in data["objects"] if isinstance(obj, dict)]
+    if isinstance(data, list):
+        return [obj for obj in data if isinstance(obj, dict)]
+    return []
+
+
+def normalize_mode(value: Optional[str], default: str, allowed: Sequence[str]) -> str:
+    mode = (value or default).strip().upper()
+    return mode if mode in allowed else default
+
+
+def sanitize_path(path: str) -> str:
+    p = (path or "").strip().strip('"').strip("'")
+    if p.startswith("file://"):
+        try:
+            p = urllib.parse.urlparse(p).path
+        except Exception:
+            pass
+    return os.path.abspath(os.path.expanduser(p.replace("\\ ", " ")))
+
+
+def parse_target(raw: str) -> Tuple[str, str]:
+    s = (raw or "").strip().strip('"').strip("'")
+    if not s:
+        raise ValueError("Empty input.")
+    if s.startswith(("http://", "https://")):
+        parsed = urllib.parse.urlparse(s)
+        path = parsed.path or ""
+        m = COLLECTION_URL_RE.search(path)
+        if m:
+            return ("collection", m.group(1))
+        m = ASSET_URL_RE.search(path)
+        if m:
+            return ("asset", m.group(1))
+        m = SHORT_SHARE_RE.search(path) or SHARE_PATH_RE.search(path)
+        if m:
+            return ("share", m.group(1))
+        m = ANY_UUID_RE.search(s)
+        if m:
+            return ("asset", m.group(1))
+        raise ValueError("Unrecognized Iconik URL.")
+    if UUID_RE.match(s):
+        return ("asset", s)
+    return ("share", s)
+
+
+def choose_file(files: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    for fobj in files:
+        value = str(fobj.get("is_original") or fobj.get("original") or "").lower()
+        if value in ("true", "1", "yes"):
+            return dict(fobj)
+    if not files:
+        raise RuntimeError("No files found on asset, or file access is missing.")
+    return dict(sorted(files, key=lambda f: int_or_zero(f.get("size")), reverse=True)[0])
+
+
+def int_or_zero(value: Any) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return 0
+
+
+def extract_urls(obj: Any) -> List[str]:
+    urls: List[str] = []
+    if isinstance(obj, dict):
+        for key in ("download_url", "url", "href"):
+            value = obj.get(key)
+            if isinstance(value, str) and value.startswith(("http://", "https://")):
+                urls.append(value)
+        for value in obj.values():
+            if isinstance(value, (dict, list)):
+                urls.extend(extract_urls(value))
+    elif isinstance(obj, list):
+        for item in obj:
+            urls.extend(extract_urls(item))
+    seen = set()
+    unique = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            unique.append(url)
+    return unique
+
+
+def presigned_to_https(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+
+
+def presigned_to_s3(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.netloc
+    path = parsed.path.lstrip("/")
+    m = re.match(r"^([^.]+)\.s3[.-][^.]+\.amazonaws\.com$", host)
+    if m:
+        return f"s3://{m.group(1)}/{path}"
+    if re.match(r"^s3[.-][^.]+\.amazonaws\.com$", host) and "/" in path:
+        bucket, key = path.split("/", 1)
+        return f"s3://{bucket}/{key}"
+    if any(token in host for token in (".wasabisys.com", ".backblazeb2.com", ".cloudflarestorage.com")) and "/" in path:
+        bucket, key = path.split("/", 1)
+        return f"s3://{bucket}/{key}"
+    first = host.split(".")[0]
+    if first and first.lower() not in ("s3", "storage", "objects") and path:
+        return f"s3://{first}/{path}"
+    return url
+
+
+def format_url(url: str, mode: str) -> str:
+    if mode == "FULL":
+        return url
+    if mode == "S3":
+        return presigned_to_s3(url)
+    return presigned_to_https(url)
+
+
+def as_bool(value: Any) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "1", "yes", "online", "active"):
+            return True
+        if lowered in ("false", "0", "no", "offline", "missing", "deleted"):
+            return False
+    return None
+
+
+def infer_online_status(fobj: Dict[str, Any], has_download_url: bool = False) -> Tuple[bool, str]:
+    explicit = as_bool(fobj.get("is_online"))
+    if explicit is not None:
+        return explicit, "ONLINE" if explicit else "OFFLINE"
+
+    for key in ("availability", "online_status", "storage_status"):
+        value = fobj.get(key)
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in ("online", "available", "active"):
+                return True, "ONLINE"
+            if lowered in ("offline", "missing", "unavailable", "deleted"):
+                return False, "OFFLINE"
+
+    status = str(fobj.get("status") or "").strip().upper()
+    if status in ("DELETED", "MISSING", "OFFLINE", "UNAVAILABLE", "FAILED", "ERROR"):
+        return False, "OFFLINE"
+
+    # A successful download URL is the strongest signal this locator has.
+    if has_download_url:
+        return True, "ONLINE"
+
+    # CLOSED is normal for Iconik file records, not an offline signal.
+    if status in ("ACTIVE", "CLOSED", "READY", "FINISHED", "COMPLETE", "COMPLETED"):
+        return True, "ONLINE"
+
+    return True, "ONLINE"
+
+
+def storage_metadata(client: IconikClient, fobj: Dict[str, Any]) -> Dict[str, str]:
+    storage_id = fobj.get("storage_id") or fobj.get("storage") or ""
+    storage_id = storage_id if isinstance(storage_id, str) else ""
+    storage_method = str(fobj.get("storage_method") or "").strip()
+    storage_name = str(fobj.get("storage_name") or "").strip()
+    storage: Dict[str, Any] = {}
+    if storage_id and not storage_name and storage_method.upper() not in ("", "S3"):
+        storage = client.storage_map().get(storage_id, {})
+    storage_name = str(
+        storage_name
+        or storage.get("storage_name")
+        or storage.get("name")
+        or ""
+    ).strip()
+    storage_method = str(
+        storage_method
+        or storage.get("storage_method")
+        or storage.get("method")
+        or ""
+    ).strip()
+    return {
+        "storage_id": storage_id,
+        "storage_name": storage_name,
+        "storage_method": storage_method,
+    }
+
+
+def join_storage_path(*parts: str) -> str:
+    clean = []
+    for part in parts:
+        text = str(part or "").strip().strip("/")
+        if text:
+            clean.append(text)
+    return "/".join(clean)
+
+
+def path_from_file_metadata(client: IconikClient, fobj: Dict[str, Any]) -> str:
+    for key in ("file_path", "filepath", "path", "absolute_path", "local_path"):
+        value = fobj.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    directory = fobj.get("directory_path") or fobj.get("directory") or fobj.get("folder_path") or ""
+    directory = directory if isinstance(directory, str) else ""
+    file_name = fobj.get("filename") or fobj.get("name") or fobj.get("original_name") or ""
+    file_name = file_name if isinstance(file_name, str) else ""
+    meta = storage_metadata(client, fobj)
+    storage_label = meta["storage_name"] or meta["storage_method"]
+    return join_storage_path(storage_label, directory, file_name)
+
+
+def make_location(
+    uri: str,
+    fobj: Dict[str, Any],
+    client: IconikClient,
+    source: str,
+    has_download_url: bool,
+) -> Dict[str, Any]:
+    is_online, status = infer_online_status(fobj, has_download_url=has_download_url)
+    meta = storage_metadata(client, fobj)
+    return {
+        "uri": uri,
+        "is_online": is_online,
+        "status": status,
+        "source": source,
+        "file_id": fobj.get("id") or fobj.get("file_id") or "",
+        "file_name": fobj.get("filename") or fobj.get("name") or fobj.get("original_name") or "",
+        "file_status": fobj.get("status") or "",
+        **meta,
+    }
+
+
+def location_lines(locations: Sequence[Dict[str, Any]]) -> List[str]:
+    lines: List[str] = []
+    for loc in locations:
+        status = str(loc.get("status") or ("ONLINE" if loc.get("is_online") else "OFFLINE"))
+        uri = str(loc.get("uri") or "")
+        storage = str(loc.get("storage_name") or loc.get("storage_method") or "").strip()
+        suffix = f" ({storage})" if storage else ""
+        lines.append(f"[{status}]{suffix} {uri}".rstrip())
+    return lines
+
+
+def online_paths_from_locations(locations: Sequence[Dict[str, Any]], file_multi: str) -> List[str]:
+    paths: List[str] = []
+    seen = set()
+    for loc in locations:
+        if not loc.get("is_online", True):
+            continue
+        uri = str(loc.get("uri") or "")
+        if not uri or uri in seen:
+            continue
+        seen.add(uri)
+        paths.append(uri)
+    if file_multi == "FIRST" and paths:
+        return paths[:1]
+    return paths
+
+
+def file_identity(fobj: Dict[str, Any]) -> Tuple[str, Any, str]:
+    name = str(fobj.get("filename") or fobj.get("name") or "").strip()
+    size = fobj.get("size")
+    checksum = str(fobj.get("checksum") or fobj.get("md5") or fobj.get("sha1") or "").strip()
+    return name, size, checksum
+
+
+def replica_candidates(files: Sequence[Dict[str, Any]], chosen: Dict[str, Any]) -> List[Dict[str, Any]]:
+    chosen_id = chosen.get("id") or chosen.get("file_id")
+    chosen_name, chosen_size, chosen_checksum = file_identity(chosen)
+    matches: List[Dict[str, Any]] = []
+    for fobj in files:
+        if (fobj.get("id") or fobj.get("file_id")) == chosen_id:
+            continue
+        name, size, checksum = file_identity(fobj)
+        same_checksum = checksum and chosen_checksum and checksum == chosen_checksum
+        same_name_size = name and chosen_name and name == chosen_name and size == chosen_size and size not in (None, 0, "0")
+        if same_checksum or same_name_size:
+            matches.append(dict(fobj))
+    return matches
+
+
+def resolve_storage_locations(
+    client: IconikClient,
+    asset_id: str,
+    files: Sequence[Dict[str, Any]],
+    chosen: Dict[str, Any],
+    output_mode: str,
+    file_multi: str,
+) -> List[Dict[str, Any]]:
+    all_files = [dict(chosen), *replica_candidates(files, chosen)[:10]]
+    locations: List[Dict[str, Any]] = []
+    seen = set()
+    for fobj in all_files:
+        file_id = fobj.get("id") or fobj.get("file_id")
+        if not isinstance(file_id, str) or not file_id:
+            continue
+
+        download_urls: List[str] = []
+        try:
+            download_urls = extract_urls(client.download_url(asset_id, file_id))
+        except Exception:
+            if fobj is chosen and not path_from_file_metadata(client, fobj):
+                raise
+
+        for url in download_urls:
+            formatted = format_url(url, output_mode)
+            if formatted in seen:
+                continue
+            seen.add(formatted)
+            locations.append(
+                make_location(
+                    formatted,
+                    fobj,
+                    client,
+                    source="download_url",
+                    has_download_url=True,
+                )
+            )
+
+        storage_method = str(fobj.get("storage_method") or "").strip().upper()
+        should_check_metadata_path = not download_urls or storage_method not in ("", "S3")
+        metadata_path = path_from_file_metadata(client, fobj) if should_check_metadata_path else ""
+        should_add_metadata_path = bool(metadata_path)
+        if should_add_metadata_path and metadata_path not in seen:
+            seen.add(metadata_path)
+            locations.append(
+                make_location(
+                    metadata_path,
+                    fobj,
+                    client,
+                    source="file_metadata",
+                    has_download_url=bool(download_urls),
+                )
+            )
+
+    if not locations:
+        raise RuntimeError("No storage location was returned for the selected file.")
+    online_count = len(online_paths_from_locations(locations, "ALL"))
+    if file_multi == "ERROR" and online_count > 1:
+        raise RuntimeError("Multiple storage locations found. Use --multi-files FIRST or ALL.")
+    return locations
+
+
+def share_asset_ids(client: IconikClient, share_id: str, share_multi: str) -> Tuple[str, List[str]]:
+    assets = client.list_share_assets(share_id)
+    ids: List[str] = []
+    for asset in assets:
+        aid = asset.get("id") or asset.get("asset_id") or asset.get("object_id")
+        if isinstance(aid, str) and UUID_RE.match(aid) and aid not in ids:
+            ids.append(aid)
+    if not ids:
+        return ("NONE", [])
+    if len(ids) == 1:
+        return ("OK", ids)
+    if share_multi == "ERROR":
+        return ("MULTI", ids)
+    if share_multi == "FIRST":
+        return ("OK", ids[:1])
+    return ("OK_ALL", ids)
+
+
+def resolve_asset(
+    client: IconikClient,
+    asset_id: str,
+    output_mode: str,
+    file_multi: str,
+) -> Dict[str, Any]:
+    files = client.list_files(asset_id)
+    chosen = choose_file(files)
+    locations = resolve_storage_locations(client, asset_id, files, chosen, output_mode, file_multi)
+    paths = online_paths_from_locations(locations, file_multi)
+    meta = client.get_asset(asset_id)
+    return {
+        "asset_id": asset_id,
+        "asset_title": meta.get("title") or meta.get("name") or "",
+        "file_name": chosen.get("filename") or chosen.get("name") or "",
+        "locations": locations,
+        "paths": paths,
+    }
+
+
+def resolve_input(
+    client: IconikClient,
+    raw: str,
+    output_mode: str,
+    share_multi: str,
+    file_multi: str,
+) -> List[Dict[str, Any]]:
+    target_type, target_id = parse_target(raw)
+    if target_type == "collection":
+        raise RuntimeError("Collection links are not storage locator inputs. Use an asset link, share link, or asset UUID.")
+    asset_ids: List[str]
+    if target_type == "asset":
+        asset_ids = [target_id]
+    else:
+        status, ids = share_asset_ids(client, target_id, share_multi)
+        if status == "NONE":
+            raise RuntimeError("Share does not resolve to an accessible asset.")
+        if status == "MULTI":
+            raise RuntimeError(f"Share resolves to {len(ids)} assets. Use --multi FIRST or ALL.")
+        asset_ids = ids
+    return [resolve_asset(client, aid, output_mode, file_multi) for aid in asset_ids]
+
+
+def all_paths(results: Sequence[Dict[str, Any]]) -> List[str]:
+    paths: List[str] = []
+    for result in results:
+        for path in result.get("paths") or []:
+            paths.append(str(path))
+    return paths
+
+
+def print_lookup(
+    ui: UI,
+    results: Sequence[Dict[str, Any]],
+    as_json: bool,
+    uri_only: bool,
+) -> None:
+    if as_json:
+        print(json.dumps({"version": VERSION, "assets": list(results)}, ensure_ascii=False, indent=2))
+        return
+    paths = all_paths(results)
+    if uri_only:
+        print("\n".join(paths))
+        return
+    locations = []
+    for result in results:
+        locations.extend(result.get("locations") or [])
+    if locations:
+        label = "Located URI" if len(locations) == 1 else "Located URIs"
+        ui.box(label, "\n".join(location_lines(locations)))
+    elif paths:
+        label = "Located URI" if len(paths) == 1 else "Located URIs"
+        ui.box(label, "\n".join(paths))
+    if len(results) > 1:
+        ui.box("Assets", str(len(results)))
+    for idx, result in enumerate(results, 1):
+        prefix = f"Asset {idx}" if len(results) > 1 else "Asset"
+        ui.box(prefix, f"{result.get('asset_title') or '(untitled)'}\n{result.get('asset_id')}")
+        ui.box("Selected file", str(result.get("file_name") or "(unnamed)"))
+        result_paths = result.get("paths") or []
+        if result_paths:
+            label = "Output" if len(result_paths) == 1 else f"Outputs ({len(result_paths)})"
+            ui.box(label, "\n".join(str(p) for p in result_paths))
+        else:
+            ui.box("Outputs (0)", "No online storage locations found.")
+
+
+def copy_to_clipboard(value: str) -> bool:
+    if sys.platform != "darwin" or not shutil.which("pbcopy"):
+        return False
+    proc = subprocess.run(["pbcopy"], input=value, text=True, check=False)
+    return proc.returncode == 0
+
+
+def is_table_file(path: str) -> bool:
+    p = sanitize_path(path)
+    return os.path.isfile(p) and os.path.splitext(p)[1].lower() in (".csv", ".tsv")
+
+
+def read_rows(path: str) -> Tuple[List[str], List[Dict[str, str]], str]:
+    p = sanitize_path(path)
+    ext = os.path.splitext(p)[1].lower()
+    dialect = "excel-tab" if ext == ".tsv" else "excel"
+    with open(p, "r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f, dialect=dialect)
+        fieldnames = list(reader.fieldnames or [])
+        rows = [dict(row) for row in reader]
+    if not fieldnames:
+        raise RuntimeError("Input file has no header row.")
+    return fieldnames, rows, ext
+
+
+def score_column(rows: Sequence[Dict[str, str]], column: str) -> float:
+    total = max(1, min(len(rows), 200))
+    score = 0.0
+    for row in rows[:total]:
+        value = str(row.get(column) or "").strip()
+        if not value:
+            continue
+        if UUID_RE.match(value):
+            score += 1.0
+        elif value.startswith(("http://", "https://")) and any(t in value.lower() for t in ("asset", "share", "/u/", "icnk", "iconik")):
+            score += 1.0
+        elif "http" in value and ("/u/" in value or "asset" in value):
+            score += 0.5
+    return score / total
+
+
+def choose_column(ui: UI, columns: Sequence[str], rows: Sequence[Dict[str, str]], requested: Optional[str]) -> str:
+    if requested:
+        if requested.isdigit():
+            idx = int(requested)
+            if 0 <= idx < len(columns):
+                return columns[idx]
+        for col in columns:
+            if col == requested or col.lower() == requested.lower():
+                return col
+        raise RuntimeError(f"Column not found: {requested}")
+
+    scores = {col: score_column(rows, col) for col in columns}
+    suggested = max(scores, key=scores.get) if scores else columns[0]
+    ui.info("Columns:")
+    for idx, col in enumerate(columns):
+        sample = rows[0].get(col, "") if rows else ""
+        ui.info(f"  {idx}: {col}  score={scores.get(col, 0.0):.2f}  sample={sample[:80]}")
+    raw = ui.ask("Which column contains asset/share links or IDs? Enter index or name", suggested)
+    if raw.isdigit():
+        idx = int(raw)
+        if 0 <= idx < len(columns):
+            return columns[idx]
+    for col in columns:
+        if col == raw or col.lower() == raw.lower():
+            return col
+    raise RuntimeError(f"Column not found: {raw}")
+
+
+def output_path_for(input_path: str, explicit: Optional[str], ext: str, ui: UI) -> str:
+    if explicit:
+        out = sanitize_path(explicit)
+    else:
+        root = os.path.splitext(sanitize_path(input_path))[0]
+        default = root + "_with_storage" + ext
+        out = sanitize_path(ui.ask("Output CSV/TSV path", default))
+    if os.path.isdir(out):
+        base = os.path.splitext(os.path.basename(input_path))[0] + "_with_storage" + ext
+        out = os.path.join(out, base)
+    return out
+
+
+def write_rows(path: str, columns: Sequence[str], rows: Sequence[Dict[str, Any]], ext: str) -> None:
+    out = sanitize_path(path)
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    tmp = out + ".tmp"
+    dialect = "excel-tab" if ext == ".tsv" or out.lower().endswith(".tsv") else "excel"
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(columns), extrasaction="ignore", dialect=dialect)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: "" if v is None else v for k, v in row.items()})
+    os.replace(tmp, out)
+
+
+def batch_lookup(
+    ui: UI,
+    client: IconikClient,
+    path: str,
+    out_path: Optional[str],
+    column: Optional[str],
+    output_mode: str,
+    share_multi: str,
+    file_multi: str,
+    workers: int,
+) -> str:
+    p = sanitize_path(path)
+    ext = os.path.splitext(p)[1].lower()
+    if ext in (".xlsx", ".xls"):
+        raise RuntimeError("XLSX input is not supported in the dependency-free build. Save as CSV and retry.")
+    columns, rows, input_ext = read_rows(p)
+    target_col = choose_column(ui, columns, rows, column)
+    out = output_path_for(p, out_path, input_ext, ui)
+
+    add_cols = [
+        "StoragePath",
+        "StorageStatus",
+        "OfflineStorageLocations",
+        "Error",
+        "MultiInserted",
+        "MultiTotalAssets",
+        "AssetID",
+        "AssetTitle",
+    ]
+    final_columns = list(columns)
+    for col in add_cols:
+        if col not in final_columns:
+            final_columns.append(col)
+
+    def process_one(index_row: Tuple[int, Dict[str, str]]) -> Tuple[int, List[Dict[str, Any]]]:
+        idx, row = index_row
+        base = dict(row)
+        raw = str(base.get(target_col) or "").strip()
+        if not raw:
+            base["Error"] = "Empty input"
+            return idx, [base]
+        try:
+            results = resolve_input(client, raw, output_mode, share_multi, file_multi)
+            out_rows: List[Dict[str, Any]] = []
+            total_assets = len(results)
+            for pos, result in enumerate(results):
+                out_row = dict(base)
+                locations = result.get("locations") or []
+                offline_locations = [
+                    str(loc.get("uri") or "")
+                    for loc in locations
+                    if not loc.get("is_online", True) and loc.get("uri")
+                ]
+                out_row["StoragePath"] = "\n".join(result.get("paths") or [])
+                out_row["StorageStatus"] = "\n".join(location_lines(locations))
+                out_row["OfflineStorageLocations"] = "\n".join(offline_locations)
+                out_row["Error"] = ""
+                out_row["MultiInserted"] = "Y" if pos > 0 else ""
+                out_row["MultiTotalAssets"] = str(total_assets) if total_assets > 1 else ""
+                out_row["AssetID"] = result.get("asset_id") or ""
+                out_row["AssetTitle"] = result.get("asset_title") or ""
+                out_rows.append(out_row)
+            return idx, out_rows
+        except Exception as exc:
+            base["Error"] = str(exc)
+            return idx, [base]
+
+    indexed_rows = list(enumerate(rows))
+    results_by_idx: Dict[int, List[Dict[str, Any]]] = {}
+    done = 0
+    total = len(indexed_rows)
+    worker_count = max(1, min(workers, 16))
+    if worker_count == 1:
+        for item in indexed_rows:
+            idx, processed = process_one(item)
+            results_by_idx[idx] = processed
+            done += 1
+            ui.progress(f"Resolving {done}/{total}")
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
+            futures = [pool.submit(process_one, item) for item in indexed_rows]
+            for fut in concurrent.futures.as_completed(futures):
+                idx, processed = fut.result()
+                results_by_idx[idx] = processed
+                done += 1
+                ui.progress(f"Resolving {done}/{total}")
+    ui.progress_done()
+
+    output_rows: List[Dict[str, Any]] = []
+    for idx in range(total):
+        output_rows.extend(results_by_idx.get(idx, []))
+    write_rows(out, final_columns, output_rows, input_ext)
+    failures = sum(1 for row in output_rows if row.get("Error"))
+    successes = len(output_rows) - failures
+    ui.box("Batch complete", f"Saved: {out}\nSuccess rows: {successes}\nFailed rows: {failures}")
+    return out
+
+
+def load_settings(args: argparse.Namespace, ui: UI) -> Tuple[str, str, str, str, str, str]:
+    cfg = ConfigStore.load()
+    legacy_app = cfg.get("app_id") if isinstance(cfg.get("app_id"), str) else ""
+    legacy_token = cfg.get("auth_token") if isinstance(cfg.get("auth_token"), str) else ""
+
+    host = args.host or cfg.get("host") or "https://app.iconik.io"
+    saved_output = cfg.get("output") if cfg.get("config_version") == VERSION else None
+    output_mode = normalize_mode(args.output or saved_output, "S3", VALID_OUTPUTS)
+    share_multi = normalize_mode(args.multi or cfg.get("multi_share") or cfg.get("multi"), "ERROR", VALID_MULTI)
+    file_multi = normalize_mode(args.multi_files or cfg.get("file_multi"), "ALL", VALID_MULTI)
+    app_id = args.app_id or KeychainStore.get(KEYCHAIN_ACCOUNT_APP_ID) or legacy_app
+    auth_token = args.auth_token or KeychainStore.get(KEYCHAIN_ACCOUNT_AUTH_TOKEN) or legacy_token
+
+    if not app_id:
+        app_id = ui.ask("App-ID")
+    if not auth_token:
+        auth_token = ui.secret("Auth-Token")
+    if not app_id or not auth_token:
+        raise RuntimeError("App-ID and Auth-Token are required.")
+
+    should_save = not args.no_save
+    if should_save:
+        ConfigStore.update(
+            host=host.rstrip("/"),
+            config_version=VERSION,
+            output=output_mode,
+            multi_share=share_multi,
+            multi=share_multi,
+            file_multi=file_multi,
+            multi_prefs_initialized=True,
+        )
+        try:
+            KeychainStore.set(KEYCHAIN_ACCOUNT_APP_ID, app_id)
+            KeychainStore.set(KEYCHAIN_ACCOUNT_AUTH_TOKEN, auth_token)
+        except Exception as exc:
+            ui.warn(f"Could not save credentials to Keychain: {exc}")
+
+    return host, app_id, auth_token, output_mode, share_multi, file_multi
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="iconik_locator",
+        description="Quickly locate the S3 URI, or best fallback URL, for Iconik assets.",
+    )
+    p.add_argument("target", nargs="?", help="Asset URL, share URL, asset UUID, or CSV/TSV file.")
+    p.add_argument("--input", "-i", dest="input", help="Asset/share/UUID or CSV/TSV file.")
+    p.add_argument("--out", "-o", help="Batch output path.")
+    p.add_argument("--column", help="Batch input column name or zero-based index.")
+    p.add_argument("--host", help="Iconik host. Default: https://app.iconik.io")
+    p.add_argument("--app-id", help="Iconik App-ID. Saved to Keychain unless --no-save is used.")
+    p.add_argument("--auth-token", help="Iconik Auth-Token. Saved to Keychain unless --no-save is used.")
+    p.add_argument("--output", choices=VALID_OUTPUTS, help="Storage path output format. Default: S3.")
+    p.add_argument("--multi", choices=VALID_MULTI, help="Multi-asset share behavior.")
+    p.add_argument("--multi-files", choices=VALID_MULTI, help="Multi-source file behavior.")
+    p.add_argument("--workers", type=int, default=6, help="Batch worker count. Default: 6.")
+    p.add_argument("--json", action="store_true", help="Print single lookup result as JSON.")
+    p.add_argument("--uri-only", action="store_true", help="Print only located URI values, one per line.")
+    p.add_argument("--copy", action="store_true", help="Copy first resolved path to clipboard on macOS.")
+    p.add_argument("--no-save", action="store_true", help="Do not save config or credentials.")
+    p.add_argument("--quiet", action="store_true", help="Reduce non-result output.")
+    p.add_argument("--reset", action="store_true", help="Remove saved config and Keychain credentials, then exit.")
+    p.add_argument("--version", action="store_true", help="Print version and exit.")
+    return p
+
+
+def interactive_loop(ui: UI, client: IconikClient, output_mode: str, share_multi: str, file_multi: str, args: argparse.Namespace) -> None:
+    ui.note(f"Host: {client.auth.host}  Output: {output_mode}  Share multi: {share_multi}  File multi: {file_multi}")
+    while True:
+        raw = ui.ask("Paste an Iconik asset/share link, asset UUID, or CSV/TSV path (q=quit)")
+        if raw.lower() in ("q", "quit", "exit"):
+            return
+        try:
+            run_target(ui, client, raw, output_mode, share_multi, file_multi, args)
+        except KeyboardInterrupt:
+            raise
+        except PermissionError as exc:
+            ui.err(str(exc))
+        except FileNotFoundError:
+            ui.err("Object not found. Check the link/ID and your access.")
+        except Exception as exc:
+            ui.err(str(exc))
+        if not ui.confirm("Would you like to look up another?", True):
+            return
+
+
+def run_target(
+    ui: UI,
+    client: IconikClient,
+    target: str,
+    output_mode: str,
+    share_multi: str,
+    file_multi: str,
+    args: argparse.Namespace,
+) -> None:
+    clean = sanitize_path(target) if os.path.exists(os.path.expanduser(target.strip().strip('"').strip("'"))) else target
+    if is_table_file(clean):
+        batch_lookup(ui, client, clean, args.out, args.column, output_mode, share_multi, file_multi, args.workers)
+        return
+    if clean.lower().endswith((".xlsx", ".xls")) and os.path.exists(clean):
+        raise RuntimeError("XLSX input is not supported in the dependency-free build. Save as CSV and retry.")
+    results = resolve_input(client, clean, output_mode, share_multi, file_multi)
+    print_lookup(ui, results, args.json, args.uri_only)
+    if args.copy and results and results[0].get("paths"):
+        if copy_to_clipboard(str(results[0]["paths"][0])):
+            ui.note("Copied first path to clipboard.")
+        else:
+            ui.warn("Could not copy to clipboard.")
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.quiet and not args.json:
+        args.uri_only = True
+    ui = UI(quiet=args.quiet)
+
+    if args.version:
+        print(VERSION)
+        return 0
+
+    if args.reset:
+        ConfigStore.reset()
+        KeychainStore.delete(KEYCHAIN_ACCOUNT_APP_ID)
+        KeychainStore.delete(KEYCHAIN_ACCOUNT_AUTH_TOKEN)
+        ui.info("Saved config and Keychain credentials removed.")
+        return 0
+
+    ui.banner()
+    try:
+        host, app_id, auth_token, output_mode, share_multi, file_multi = load_settings(args, ui)
+        client = IconikClient(Auth(host=host, app_id=app_id, auth_token=auth_token))
+        target = args.input or args.target
+        if target:
+            run_target(ui, client, target, output_mode, share_multi, file_multi, args)
+        else:
+            interactive_loop(ui, client, output_mode, share_multi, file_multi, args)
+        return 0
+    except KeyboardInterrupt:
+        ui.err("Interrupted.")
+        return 130
+    except PermissionError as exc:
+        ui.err(str(exc))
+        return 3
+    except FileNotFoundError:
+        ui.err("Object not found. Check the link/ID and your access.")
+        return 4
+    except Exception as exc:
+        ui.err(str(exc))
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

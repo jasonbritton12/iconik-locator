@@ -1,0 +1,209 @@
+jasonbritton@Jasons-MacBook-Pro ~ % cd /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My\ Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3
+jasonbritton@Jasons-MacBook-Pro 2_0_3 % build /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My\ Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/build_macos_both_v_2_0_3.sh
+zsh: command not found: build
+jasonbritton@Jasons-MacBook-Pro 2_0_3 % bash /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My\ Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/build_macos_both_v_2_0_3.sh
+== arm64 build using: /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 ==
+Requirement already satisfied: pip in ./venv-arm/lib/python3.13/site-packages (25.1.1)
+Collecting pip
+  Downloading pip-25.3-py3-none-any.whl.metadata (4.7 kB)
+Downloading pip-25.3-py3-none-any.whl (1.8 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.8/1.8 MB 9.5 MB/s eta 0:00:00
+Installing collected packages: pip
+  Attempting uninstall: pip
+    Found existing installation: pip 25.1.1
+    Uninstalling pip-25.1.1:
+      Successfully uninstalled pip-25.1.1
+Successfully installed pip-25.3
+Collecting pyinstaller
+  Using cached pyinstaller-6.16.0-py3-none-macosx_10_13_universal2.whl.metadata (8.5 kB)
+Collecting requests
+  Using cached requests-2.32.5-py3-none-any.whl.metadata (4.9 kB)
+Collecting rich
+  Using cached rich-14.2.0-py3-none-any.whl.metadata (18 kB)
+Collecting pandas
+  Using cached pandas-2.3.3-cp313-cp313-macosx_11_0_arm64.whl.metadata (91 kB)
+Collecting openpyxl
+  Using cached openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB)
+Collecting altgraph (from pyinstaller)
+  Using cached altgraph-0.17.4-py2.py3-none-any.whl.metadata (7.3 kB)
+Collecting macholib>=1.8 (from pyinstaller)
+  Using cached macholib-1.16.3-py2.py3-none-any.whl.metadata (11 kB)
+Collecting packaging>=22.0 (from pyinstaller)
+  Using cached packaging-25.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting pyinstaller-hooks-contrib>=2025.8 (from pyinstaller)
+  Using cached pyinstaller_hooks_contrib-2025.9-py3-none-any.whl.metadata (16 kB)
+Collecting setuptools>=42.0.0 (from pyinstaller)
+  Using cached setuptools-80.9.0-py3-none-any.whl.metadata (6.6 kB)
+Collecting charset_normalizer<4,>=2 (from requests)
+  Using cached charset_normalizer-3.4.4-cp313-cp313-macosx_10_13_universal2.whl.metadata (37 kB)
+Collecting idna<4,>=2.5 (from requests)
+  Using cached idna-3.11-py3-none-any.whl.metadata (8.4 kB)
+Collecting urllib3<3,>=1.21.1 (from requests)
+  Using cached urllib3-2.5.0-py3-none-any.whl.metadata (6.5 kB)
+Collecting certifi>=2017.4.17 (from requests)
+  Downloading certifi-2025.11.12-py3-none-any.whl.metadata (2.5 kB)
+Collecting markdown-it-py>=2.2.0 (from rich)
+  Using cached markdown_it_py-4.0.0-py3-none-any.whl.metadata (7.3 kB)
+Collecting pygments<3.0.0,>=2.13.0 (from rich)
+  Using cached pygments-2.19.2-py3-none-any.whl.metadata (2.5 kB)
+Collecting numpy>=1.26.0 (from pandas)
+  Downloading numpy-2.3.5-cp313-cp313-macosx_14_0_arm64.whl.metadata (62 kB)
+Collecting python-dateutil>=2.8.2 (from pandas)
+  Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+Collecting pytz>=2020.1 (from pandas)
+  Using cached pytz-2025.2-py2.py3-none-any.whl.metadata (22 kB)
+Collecting tzdata>=2022.7 (from pandas)
+  Using cached tzdata-2025.2-py2.py3-none-any.whl.metadata (1.4 kB)
+Collecting et-xmlfile (from openpyxl)
+  Using cached et_xmlfile-2.0.0-py3-none-any.whl.metadata (2.7 kB)
+Collecting mdurl~=0.1 (from markdown-it-py>=2.2.0->rich)
+  Using cached mdurl-0.1.2-py3-none-any.whl.metadata (1.6 kB)
+Collecting six>=1.5 (from python-dateutil>=2.8.2->pandas)
+  Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+Using cached pyinstaller-6.16.0-py3-none-macosx_10_13_universal2.whl (1.0 MB)
+Using cached requests-2.32.5-py3-none-any.whl (64 kB)
+Using cached charset_normalizer-3.4.4-cp313-cp313-macosx_10_13_universal2.whl (208 kB)
+Using cached idna-3.11-py3-none-any.whl (71 kB)
+Using cached urllib3-2.5.0-py3-none-any.whl (129 kB)
+Using cached rich-14.2.0-py3-none-any.whl (243 kB)
+Using cached pygments-2.19.2-py3-none-any.whl (1.2 MB)
+Using cached pandas-2.3.3-cp313-cp313-macosx_11_0_arm64.whl (10.7 MB)
+Using cached openpyxl-3.1.5-py2.py3-none-any.whl (250 kB)
+Downloading certifi-2025.11.12-py3-none-any.whl (159 kB)
+Using cached macholib-1.16.3-py2.py3-none-any.whl (38 kB)
+Using cached altgraph-0.17.4-py2.py3-none-any.whl (21 kB)
+Using cached markdown_it_py-4.0.0-py3-none-any.whl (87 kB)
+Using cached mdurl-0.1.2-py3-none-any.whl (10.0 kB)
+Downloading numpy-2.3.5-cp313-cp313-macosx_14_0_arm64.whl (5.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.1/5.1 MB 8.9 MB/s  0:00:00
+Using cached packaging-25.0-py3-none-any.whl (66 kB)
+Using cached pyinstaller_hooks_contrib-2025.9-py3-none-any.whl (444 kB)
+Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+Using cached pytz-2025.2-py2.py3-none-any.whl (509 kB)
+Using cached setuptools-80.9.0-py3-none-any.whl (1.2 MB)
+Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+Using cached tzdata-2025.2-py2.py3-none-any.whl (347 kB)
+Using cached et_xmlfile-2.0.0-py3-none-any.whl (18 kB)
+Installing collected packages: pytz, altgraph, urllib3, tzdata, six, setuptools, pygments, packaging, numpy, mdurl, macholib, idna, et-xmlfile, charset_normalizer, certifi, requests, python-dateutil, pyinstaller-hooks-contrib, openpyxl, markdown-it-py, rich, pyinstaller, pandas
+Successfully installed altgraph-0.17.4 certifi-2025.11.12 charset_normalizer-3.4.4 et-xmlfile-2.0.0 idna-3.11 macholib-1.16.3 markdown-it-py-4.0.0 mdurl-0.1.2 numpy-2.3.5 openpyxl-3.1.5 packaging-25.0 pandas-2.3.3 pygments-2.19.2 pyinstaller-6.16.0 pyinstaller-hooks-contrib-2025.9 python-dateutil-2.9.0.post0 pytz-2025.2 requests-2.32.5 rich-14.2.0 setuptools-80.9.0 six-1.17.0 tzdata-2025.2 urllib3-2.5.0
+42 INFO: PyInstaller: 6.16.0, contrib hooks: 2025.9
+42 INFO: Python: 3.13.5
+50 INFO: Platform: macOS-15.6.1-arm64-arm-64bit-Mach-O
+50 INFO: Python environment: /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm
+51 INFO: wrote /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/iconik_locator_2_0_3_arm64.spec
+53 INFO: Module search paths (PYTHONPATH):
+['/Library/Frameworks/Python.framework/Versions/3.13/lib/python313.zip',
+ '/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13',
+ '/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/lib-dynload',
+ '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My '
+ 'Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages',
+ '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My '
+ 'Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/setuptools/_vendor',
+ '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My '
+ 'Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3']
+611 INFO: checking Analysis
+611 INFO: Building Analysis because Analysis-00.toc is non existent
+611 INFO: Looking for Python shared library...
+614 INFO: Using Python shared library: /Library/Frameworks/Python.framework/Versions/3.13/Python
+614 INFO: Running Analysis Analysis-00.toc
+614 INFO: Target bytecode optimization level: 0
+614 INFO: Initializing module dependency graph...
+615 INFO: Initializing module graph hook caches...
+619 INFO: Analyzing modules for base_library.zip ...
+1006 INFO: Processing standard module hook 'hook-encodings.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+1892 INFO: Processing standard module hook 'hook-pickle.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+2384 INFO: Processing standard module hook 'hook-heapq.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+2619 INFO: Caching module dependency graph...
+2636 INFO: Analyzing /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/iconik_locator_tui.py
+2677 INFO: Processing standard module hook 'hook-platform.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+2694 INFO: Processing standard module hook 'hook-xml.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+2705 INFO: Processing standard module hook 'hook-_ctypes.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+2724 INFO: Processing standard module hook 'hook-urllib3.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+2823 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+2823 INFO: SetuptoolsInfo: initializing cached setuptools info...
+4458 INFO: Setuptools: 'typing_extensions' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.typing_extensions'!
+4461 INFO: Processing standard module hook 'hook-setuptools.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+4467 INFO: Processing pre-safe-import-module hook 'hook-distutils.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+4489 INFO: Processing standard module hook 'hook-sysconfig.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+4496 INFO: Processing standard module hook 'hook-_osx_support.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+4498 INFO: Processing pre-safe-import-module hook 'hook-jaraco.functools.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+4498 INFO: Setuptools: 'jaraco.functools' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco.functools'!
+4503 INFO: Processing pre-safe-import-module hook 'hook-more_itertools.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+4503 INFO: Setuptools: 'more_itertools' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.more_itertools'!
+4625 INFO: Processing pre-safe-import-module hook 'hook-packaging.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+4696 INFO: Processing pre-safe-import-module hook 'hook-jaraco.text.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+4696 INFO: Setuptools: 'jaraco.text' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco.text'!
+4701 INFO: Processing standard module hook 'hook-setuptools._vendor.jaraco.text.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+4702 INFO: Processing pre-safe-import-module hook 'hook-importlib_resources.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+4702 INFO: Processing pre-safe-import-module hook 'hook-jaraco.context.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+4702 INFO: Setuptools: 'jaraco.context' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco.context'!
+4810 INFO: Processing pre-safe-import-module hook 'hook-backports.tarfile.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+4810 INFO: Setuptools: 'backports.tarfile' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.backports.tarfile'!
+4854 INFO: Processing standard module hook 'hook-backports.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+4890 INFO: Processing pre-safe-import-module hook 'hook-importlib_metadata.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+4890 INFO: Setuptools: 'importlib_metadata' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.importlib_metadata'!
+4902 INFO: Processing standard module hook 'hook-setuptools._vendor.importlib_metadata.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+4903 INFO: Processing pre-safe-import-module hook 'hook-zipp.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+4903 INFO: Setuptools: 'zipp' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.zipp'!
+5031 INFO: Processing pre-safe-import-module hook 'hook-tomli.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+5031 INFO: Setuptools: 'tomli' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.tomli'!
+5265 INFO: Processing pre-safe-import-module hook 'hook-wheel.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+5265 INFO: Setuptools: 'wheel' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.wheel'!
+5593 INFO: Processing standard module hook 'hook-charset_normalizer.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+5661 INFO: Processing standard module hook 'hook-certifi.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+5905 INFO: Processing standard module hook 'hook-pygments.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+6732 INFO: Processing standard module hook 'hook-pandas.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+12848 INFO: Processing standard module hook 'hook-numpy.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+13143 INFO: Processing standard module hook 'hook-difflib.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+13274 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+14566 INFO: Processing standard module hook 'hook-pytz.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+15700 INFO: Processing standard module hook 'hook-pandas.io.formats.style.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+16691 INFO: Processing standard module hook 'hook-pandas.plotting.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+17039 INFO: Processing standard module hook 'hook-openpyxl.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+17240 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+17846 INFO: Processing standard module hook 'hook-sqlite3.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+18155 INFO: Processing standard module hook 'hook-pandas.io.clipboard.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+18310 INFO: Processing standard module hook 'hook-dateutil.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/_pyinstaller_hooks_contrib/stdhooks'
+18432 INFO: Processing pre-safe-import-module hook 'hook-six.moves.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/pre_safe_import_module'
+18615 INFO: Processing standard module hook 'hook-xml.dom.domreg.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks'
+18881 INFO: Processing module hooks (post-graph stage)...
+18893 WARNING: Hidden import "jinja2" not found!
+20124 INFO: Performing binary vs. data reclassification (624 entries)
+20150 INFO: Looking for ctypes DLLs
+20171 WARNING: Library msvcrt required via ctypes not found
+20172 WARNING: Library user32 required via ctypes not found
+20182 INFO: Analyzing run-time hooks ...
+20185 INFO: Including run-time hook 'pyi_rth_inspect.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/rthooks'
+20186 INFO: Including run-time hook 'pyi_rth_setuptools.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/rthooks'
+20187 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/rthooks'
+20188 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from '/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/hooks/rthooks'
+20204 INFO: Creating base_library.zip...
+20234 INFO: Looking for dynamic libraries
+20434 INFO: Warnings written to /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/build/iconik_locator_2_0_3_arm64/warn-iconik_locator_2_0_3_arm64.txt
+20471 INFO: Graph cross-reference written to /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/build/iconik_locator_2_0_3_arm64/xref-iconik_locator_2_0_3_arm64.html
+20557 INFO: checking PYZ
+20557 INFO: Building PYZ because PYZ-00.toc is non existent
+20557 INFO: Building PYZ (ZlibArchive) /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/build/iconik_locator_2_0_3_arm64/PYZ-00.pyz
+21290 INFO: Building PYZ (ZlibArchive) /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/build/iconik_locator_2_0_3_arm64/PYZ-00.pyz completed successfully.
+21305 INFO: EXE target arch: arm64
+21305 INFO: Code signing identity: None
+21311 INFO: checking PKG
+21311 INFO: Building PKG because PKG-00.toc is non existent
+21311 INFO: Building PKG (CArchive) iconik_locator_2_0_3_arm64.pkg
+24747 INFO: Building PKG (CArchive) iconik_locator_2_0_3_arm64.pkg completed successfully.
+24755 INFO: Bootloader /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/venv-arm/lib/python3.13/site-packages/PyInstaller/bootloader/Darwin-64bit/run
+24755 INFO: checking EXE
+24755 INFO: Building EXE because EXE-00.toc is non existent
+24755 INFO: Building EXE from EXE-00.toc
+24755 INFO: Copying bootloader EXE to /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/dist/iconik_locator_2_0_3_arm64
+24755 INFO: Converting EXE to target arch (arm64)
+24774 INFO: Removing signature(s) from EXE
+24785 INFO: Modifying Mach-O image UUID(s) in EXE
+24799 INFO: Appending PKG archive to EXE
+24809 INFO: Fixing EXE headers for code signing
+24812 INFO: Re-signing the EXE
+24851 INFO: Building EXE from EXE-00.toc completed successfully.
+24859 INFO: Build complete! The results are available in: /Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/dist
+dist/iconik_locator_2_0_3_arm64: Mach-O 64-bit executable arm64
+== x86_64 build using: /usr/local/bin/python3 ==
+/Users/jasonbritton/Library/CloudStorage/GoogleDrive-jason.britton12@gmail.com/My Drive/VibeCoding/DEV/Iconik_AWS_Locator/2_0_3/build_macos_both_v_2_0_3.sh: line 94: unexpected EOF while looking for matching `"'
