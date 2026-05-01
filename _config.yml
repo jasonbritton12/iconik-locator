@@ -1,0 +1,7 @@
+remote_theme: pages-themes/slate@v0.2.0
+plugins:
+- jekyll-remote-theme
+
+title: Iconik Locator
+description: Find the source location of an Iconik file
+show_downloads: true
