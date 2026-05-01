@@ -145,6 +145,17 @@ class UI:
         print(self._style(label, "1;36"))
         print(value)
 
+    def output_box(self, label: str, value: str) -> None:
+        if self.quiet:
+            print(value)
+            return
+        print("")
+        print(self._style("─" * 60, "90"))
+        print(self._style(label, "1;32")) # Green for output
+        print(value)
+        print(self._style("─" * 60, "90"))
+        print("")
+
 
 class ConfigStore:
     SENSITIVE = {"app_id", "auth_token"}
@@ -874,9 +885,9 @@ def print_lookup(
         result_paths = result.get("paths") or []
         if result_paths:
             label = "Output" if len(result_paths) == 1 else f"Outputs ({len(result_paths)})"
-            ui.box(label, "\n".join(str(p) for p in result_paths))
+            ui.output_box(label, "\n".join(str(p) for p in result_paths))
         else:
-            ui.box("Outputs (0)", "No online storage locations found.")
+            ui.output_box("Outputs (0)", "No online storage locations found.")
 
 
 def copy_to_clipboard(value: str) -> bool:
