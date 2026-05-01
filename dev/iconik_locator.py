@@ -964,6 +964,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def interactive_loop(ui: UI, client: IconikClient, output_mode: str, share_multi: str, file_multi: str, args: argparse.Namespace) -> None:
     ui.note(f"Host: {client.auth.host}  Output: {output_mode}  Share multi: {share_multi}  File multi: {file_multi}")
+    ui.info("Welcome to the Iconik Locator interactive mode. Type 'help' at any time for instructions.")
     while True:
         raw = ui.ask("Paste an Iconik asset/share link, collection URL, or asset UUID (q=quit)")
         
@@ -991,8 +992,10 @@ def interactive_loop(ui: UI, client: IconikClient, output_mode: str, share_multi
             ui.err(str(exc))
         except FileNotFoundError:
             ui.err("Object not found. Check the link/ID and your access.")
+        except urllib.error.URLError as exc:
+            ui.err(f"Network error: {exc}")
         except Exception as exc:
-            ui.err(str(exc))
+            ui.err(f"Unexpected error: {exc}")
         finally:
             ui.progress_done()
 
