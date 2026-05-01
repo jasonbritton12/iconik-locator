@@ -145,6 +145,17 @@ class UI:
         print(self._style(label, "1;36"))
         print(value)
 
+    def output_box(self, label: str, value: str) -> None:
+        if self.quiet:
+            print(value)
+            return
+        print("")
+        print(self._style("─" * 60, "90"))
+        print(self._style(label, "1;32")) # Green for output
+        print(value)
+        print(self._style("─" * 60, "90"))
+        print("")
+
 
 class ConfigStore:
     SENSITIVE = {"app_id", "auth_token"}
@@ -301,8 +312,21 @@ class IconikClient:
 
     def list_share_assets(self, share_id: str) -> List[Dict[str, Any]]:
         try:
-            data = self.get(f"/API/acls/v1/shares/{quote_path(share_id)}/assets/")
-            return objects_from(data)
+            data = self.get(f"/API/acls/v1/shares/{quote_path(share_id)}/assets/?page=1&per_page=100")
+            assets = objects_from(data)
+            total = int_or_zero(data.get("total") if isinstance(data, dict) else 0)
+            if total > len(assets):
+                next_url = data.get("next_url") if isinstance(data, dict) else None
+                path = normalize_next_url(next_url, default_prefix=f"/API/acls/v1/shares/{quote_path(share_id)}/assets")
+                while path:
+                    data = self.get(path)
+                    more = objects_from(data)
+                    if not more:
+                        break
+                    assets.extend(more)
+                    next_url = data.get("next_url") if isinstance(data, dict) else None
+                    path = normalize_next_url(next_url, default_prefix=f"/API/acls/v1/shares/{quote_path(share_id)}/assets")
+            return assets
         except FileNotFoundError:
             pass
         data = self.get(f"/API/acls/v1/shares/{quote_path(share_id)}/")
@@ -314,8 +338,23 @@ class IconikClient:
         return []
 
     def list_files(self, asset_id: str) -> List[Dict[str, Any]]:
-        data = self.get(f"/API/files/v1/assets/{asset_id}/files/")
-        return objects_from(data)
+        files: List[Dict[str, Any]] = []
+        path: Optional[str] = f"/API/files/v1/assets/{asset_id}/files/?page=1&per_page=100"
+        while path:
+            data = self.get(path)
+            objects = objects_from(data)
+            if not objects:
+                break
+            files.extend(objects)
+            next_url = data.get("next_url") if isinstance(data, dict) else None
+            path = normalize_next_url(next_url, default_prefix=f"/API/files/v1/assets/{asset_id}/files")
+        return files
+
+    def list_collection_contents(self, collection_id: str) -> Tuple[List[Dict[str, Any]], int]:
+        data = self.get(f"/API/assets/v1/collections/{collection_id}/contents/?page=1&per_page=10")
+        objects = objects_from(data)
+        total = int_or_zero(data.get("total") if isinstance(data, dict) else 0)
+        return objects, total
 
     def download_url(self, asset_id: str, file_id: str) -> Dict[str, Any]:
         data = self.get(
@@ -614,8 +653,21 @@ def location_lines(locations: Sequence[Dict[str, Any]]) -> List[str]:
     for loc in locations:
         status = str(loc.get("status") or ("ONLINE" if loc.get("is_online") else "OFFLINE"))
         uri = str(loc.get("uri") or "")
-        storage = str(loc.get("storage_name") or loc.get("storage_method") or "").strip()
-        suffix = f" ({storage})" if storage else ""
+        
+        method = str(loc.get("storage_method") or "").upper()
+        purpose = str(loc.get("storage_purpose") or "").upper()
+        storage_name = str(loc.get("storage_name") or "").upper()
+        
+        storage_type = "Unknown Storage"
+        if method == "ISG":
+            storage_type = "Local Server"
+        elif method == "S3":
+            storage_type = "AWS S3"
+        elif "LUCID" in storage_name or "LUCID" in purpose or "LUCID" in method:
+            storage_type = "LucidLink"
+            
+        storage_info = str(loc.get("storage_name") or loc.get("storage_method") or "").strip()
+        suffix = f" ({storage_type}: {storage_info})" if storage_info else f" ({storage_type})"
         lines.append(f"[{status}]{suffix} {uri}".rstrip())
     return lines
 
@@ -764,10 +816,18 @@ def resolve_input(
     output_mode: str,
     share_multi: str,
     file_multi: str,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     target_type, target_id = parse_target(raw)
+    
     if target_type == "collection":
-        raise RuntimeError("Collection links are not storage locator inputs. Use an asset link, share link, or asset UUID.")
+        objects, total = client.list_collection_contents(target_id)
+        return {
+            "type": "collection",
+            "id": target_id,
+            "total": total,
+            "objects": objects[:3]
+        }
+        
     asset_ids: List[str]
     if target_type == "asset":
         asset_ids = [target_id]
@@ -778,7 +838,12 @@ def resolve_input(
         if status == "MULTI":
             raise RuntimeError(f"Share resolves to {len(ids)} assets. Use --multi FIRST or ALL.")
         asset_ids = ids
-    return [resolve_asset(client, aid, output_mode, file_multi) for aid in asset_ids]
+        
+    return {
+        "type": "asset_list",
+        "id": target_id,
+        "results": [resolve_asset(client, aid, output_mode, file_multi) for aid in asset_ids]
+    }
 
 
 def all_paths(results: Sequence[Dict[str, Any]]) -> List[str]:
@@ -820,9 +885,9 @@ def print_lookup(
         result_paths = result.get("paths") or []
         if result_paths:
             label = "Output" if len(result_paths) == 1 else f"Outputs ({len(result_paths)})"
-            ui.box(label, "\n".join(str(p) for p in result_paths))
+            ui.output_box(label, "\n".join(str(p) for p in result_paths))
         else:
-            ui.box("Outputs (0)", "No online storage locations found.")
+            ui.output_box("Outputs (0)", "No online storage locations found.")
 
 
 def copy_to_clipboard(value: str) -> bool:
@@ -832,190 +897,6 @@ def copy_to_clipboard(value: str) -> bool:
     return proc.returncode == 0
 
 
-def is_table_file(path: str) -> bool:
-    p = sanitize_path(path)
-    return os.path.isfile(p) and os.path.splitext(p)[1].lower() in (".csv", ".tsv")
-
-
-def read_rows(path: str) -> Tuple[List[str], List[Dict[str, str]], str]:
-    p = sanitize_path(path)
-    ext = os.path.splitext(p)[1].lower()
-    dialect = "excel-tab" if ext == ".tsv" else "excel"
-    with open(p, "r", encoding="utf-8-sig", newline="") as f:
-        reader = csv.DictReader(f, dialect=dialect)
-        fieldnames = list(reader.fieldnames or [])
-        rows = [dict(row) for row in reader]
-    if not fieldnames:
-        raise RuntimeError("Input file has no header row.")
-    return fieldnames, rows, ext
-
-
-def score_column(rows: Sequence[Dict[str, str]], column: str) -> float:
-    total = max(1, min(len(rows), 200))
-    score = 0.0
-    for row in rows[:total]:
-        value = str(row.get(column) or "").strip()
-        if not value:
-            continue
-        if UUID_RE.match(value):
-            score += 1.0
-        elif value.startswith(("http://", "https://")) and any(t in value.lower() for t in ("asset", "share", "/u/", "icnk", "iconik")):
-            score += 1.0
-        elif "http" in value and ("/u/" in value or "asset" in value):
-            score += 0.5
-    return score / total
-
-
-def choose_column(ui: UI, columns: Sequence[str], rows: Sequence[Dict[str, str]], requested: Optional[str]) -> str:
-    if requested:
-        if requested.isdigit():
-            idx = int(requested)
-            if 0 <= idx < len(columns):
-                return columns[idx]
-        for col in columns:
-            if col == requested or col.lower() == requested.lower():
-                return col
-        raise RuntimeError(f"Column not found: {requested}")
-
-    scores = {col: score_column(rows, col) for col in columns}
-    suggested = max(scores, key=scores.get) if scores else columns[0]
-    ui.info("Columns:")
-    for idx, col in enumerate(columns):
-        sample = rows[0].get(col, "") if rows else ""
-        ui.info(f"  {idx}: {col}  score={scores.get(col, 0.0):.2f}  sample={sample[:80]}")
-    raw = ui.ask("Which column contains asset/share links or IDs? Enter index or name", suggested)
-    if raw.isdigit():
-        idx = int(raw)
-        if 0 <= idx < len(columns):
-            return columns[idx]
-    for col in columns:
-        if col == raw or col.lower() == raw.lower():
-            return col
-    raise RuntimeError(f"Column not found: {raw}")
-
-
-def output_path_for(input_path: str, explicit: Optional[str], ext: str, ui: UI) -> str:
-    if explicit:
-        out = sanitize_path(explicit)
-    else:
-        root = os.path.splitext(sanitize_path(input_path))[0]
-        default = root + "_with_storage" + ext
-        out = sanitize_path(ui.ask("Output CSV/TSV path", default))
-    if os.path.isdir(out):
-        base = os.path.splitext(os.path.basename(input_path))[0] + "_with_storage" + ext
-        out = os.path.join(out, base)
-    return out
-
-
-def write_rows(path: str, columns: Sequence[str], rows: Sequence[Dict[str, Any]], ext: str) -> None:
-    out = sanitize_path(path)
-    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
-    tmp = out + ".tmp"
-    dialect = "excel-tab" if ext == ".tsv" or out.lower().endswith(".tsv") else "excel"
-    with open(tmp, "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(columns), extrasaction="ignore", dialect=dialect)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({k: "" if v is None else v for k, v in row.items()})
-    os.replace(tmp, out)
-
-
-def batch_lookup(
-    ui: UI,
-    client: IconikClient,
-    path: str,
-    out_path: Optional[str],
-    column: Optional[str],
-    output_mode: str,
-    share_multi: str,
-    file_multi: str,
-    workers: int,
-) -> str:
-    p = sanitize_path(path)
-    ext = os.path.splitext(p)[1].lower()
-    if ext in (".xlsx", ".xls"):
-        raise RuntimeError("XLSX input is not supported in the dependency-free build. Save as CSV and retry.")
-    columns, rows, input_ext = read_rows(p)
-    target_col = choose_column(ui, columns, rows, column)
-    out = output_path_for(p, out_path, input_ext, ui)
-
-    add_cols = [
-        "StoragePath",
-        "StorageStatus",
-        "OfflineStorageLocations",
-        "Error",
-        "MultiInserted",
-        "MultiTotalAssets",
-        "AssetID",
-        "AssetTitle",
-    ]
-    final_columns = list(columns)
-    for col in add_cols:
-        if col not in final_columns:
-            final_columns.append(col)
-
-    def process_one(index_row: Tuple[int, Dict[str, str]]) -> Tuple[int, List[Dict[str, Any]]]:
-        idx, row = index_row
-        base = dict(row)
-        raw = str(base.get(target_col) or "").strip()
-        if not raw:
-            base["Error"] = "Empty input"
-            return idx, [base]
-        try:
-            results = resolve_input(client, raw, output_mode, share_multi, file_multi)
-            out_rows: List[Dict[str, Any]] = []
-            total_assets = len(results)
-            for pos, result in enumerate(results):
-                out_row = dict(base)
-                locations = result.get("locations") or []
-                offline_locations = [
-                    str(loc.get("uri") or "")
-                    for loc in locations
-                    if not loc.get("is_online", True) and loc.get("uri")
-                ]
-                out_row["StoragePath"] = "\n".join(result.get("paths") or [])
-                out_row["StorageStatus"] = "\n".join(location_lines(locations))
-                out_row["OfflineStorageLocations"] = "\n".join(offline_locations)
-                out_row["Error"] = ""
-                out_row["MultiInserted"] = "Y" if pos > 0 else ""
-                out_row["MultiTotalAssets"] = str(total_assets) if total_assets > 1 else ""
-                out_row["AssetID"] = result.get("asset_id") or ""
-                out_row["AssetTitle"] = result.get("asset_title") or ""
-                out_rows.append(out_row)
-            return idx, out_rows
-        except Exception as exc:
-            base["Error"] = str(exc)
-            return idx, [base]
-
-    indexed_rows = list(enumerate(rows))
-    results_by_idx: Dict[int, List[Dict[str, Any]]] = {}
-    done = 0
-    total = len(indexed_rows)
-    worker_count = max(1, min(workers, 16))
-    if worker_count == 1:
-        for item in indexed_rows:
-            idx, processed = process_one(item)
-            results_by_idx[idx] = processed
-            done += 1
-            ui.progress(f"Resolving {done}/{total}")
-    else:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as pool:
-            futures = [pool.submit(process_one, item) for item in indexed_rows]
-            for fut in concurrent.futures.as_completed(futures):
-                idx, processed = fut.result()
-                results_by_idx[idx] = processed
-                done += 1
-                ui.progress(f"Resolving {done}/{total}")
-    ui.progress_done()
-
-    output_rows: List[Dict[str, Any]] = []
-    for idx in range(total):
-        output_rows.extend(results_by_idx.get(idx, []))
-    write_rows(out, final_columns, output_rows, input_ext)
-    failures = sum(1 for row in output_rows if row.get("Error"))
-    successes = len(output_rows) - failures
-    ui.box("Batch complete", f"Saved: {out}\nSuccess rows: {successes}\nFailed rows: {failures}")
-    return out
 
 
 def load_settings(args: argparse.Namespace, ui: UI) -> Tuple[str, str, str, str, str, str]:
@@ -1063,17 +944,14 @@ def build_parser() -> argparse.ArgumentParser:
         prog="iconik_locator",
         description="Quickly locate the S3 URI, or best fallback URL, for Iconik assets.",
     )
-    p.add_argument("target", nargs="?", help="Asset URL, share URL, asset UUID, or CSV/TSV file.")
-    p.add_argument("--input", "-i", dest="input", help="Asset/share/UUID or CSV/TSV file.")
-    p.add_argument("--out", "-o", help="Batch output path.")
-    p.add_argument("--column", help="Batch input column name or zero-based index.")
+    p.add_argument("target", nargs="?", help="Asset URL, share URL, asset UUID, or collection URL.")
+    p.add_argument("--input", "-i", dest="input", help="Asset/share/UUID or collection URL.")
     p.add_argument("--host", help="Iconik host. Default: https://app.iconik.io")
     p.add_argument("--app-id", help="Iconik App-ID. Saved to Keychain unless --no-save is used.")
     p.add_argument("--auth-token", help="Iconik Auth-Token. Saved to Keychain unless --no-save is used.")
     p.add_argument("--output", choices=VALID_OUTPUTS, help="Storage path output format. Default: S3.")
     p.add_argument("--multi", choices=VALID_MULTI, help="Multi-asset share behavior.")
     p.add_argument("--multi-files", choices=VALID_MULTI, help="Multi-source file behavior.")
-    p.add_argument("--workers", type=int, default=6, help="Batch worker count. Default: 6.")
     p.add_argument("--json", action="store_true", help="Print single lookup result as JSON.")
     p.add_argument("--uri-only", action="store_true", help="Print only located URI values, one per line.")
     p.add_argument("--copy", action="store_true", help="Copy first resolved path to clipboard on macOS.")
@@ -1086,22 +964,40 @@ def build_parser() -> argparse.ArgumentParser:
 
 def interactive_loop(ui: UI, client: IconikClient, output_mode: str, share_multi: str, file_multi: str, args: argparse.Namespace) -> None:
     ui.note(f"Host: {client.auth.host}  Output: {output_mode}  Share multi: {share_multi}  File multi: {file_multi}")
+    ui.info("Welcome to the Iconik Locator interactive mode. Type 'help' at any time for instructions.")
     while True:
-        raw = ui.ask("Paste an Iconik asset/share link, asset UUID, or CSV/TSV path (q=quit)")
-        if raw.lower() in ("q", "quit", "exit"):
+        raw = ui.ask("Paste an Iconik asset/share link, collection URL, or asset UUID (q=quit)")
+        
+        # Check for quit
+        if raw.lower() in ("q", "quit", "exit", "no", "n"):
             return
+            
+        # Check for help
+        if raw.lower() == "help":
+            ui.info("Help: This tool is designed to look up the physical storage path for a given Iconik Asset.")
+            ui.info("Supported inputs:")
+            ui.info("  - Asset URL (e.g. https://app.iconik.io/asset/...)")
+            ui.info("  - Share URL (e.g. https://app.iconik.io/share/...)")
+            ui.info("  - Asset UUID")
+            ui.info("  - Collection URL (displays first 3 items)")
+            continue
+
+        ui.progress("Looking up...")
         try:
             run_target(ui, client, raw, output_mode, share_multi, file_multi, args)
         except KeyboardInterrupt:
+            ui.progress_done()
             raise
         except PermissionError as exc:
             ui.err(str(exc))
         except FileNotFoundError:
             ui.err("Object not found. Check the link/ID and your access.")
+        except urllib.error.URLError as exc:
+            ui.err(f"Network error: {exc}")
         except Exception as exc:
-            ui.err(str(exc))
-        if not ui.confirm("Would you like to look up another?", True):
-            return
+            ui.err(f"Unexpected error: {exc}")
+        finally:
+            ui.progress_done()
 
 
 def run_target(
@@ -1114,12 +1010,22 @@ def run_target(
     args: argparse.Namespace,
 ) -> None:
     clean = sanitize_path(target) if os.path.exists(os.path.expanduser(target.strip().strip('"').strip("'"))) else target
-    if is_table_file(clean):
-        batch_lookup(ui, client, clean, args.out, args.column, output_mode, share_multi, file_multi, args.workers)
+    result_data = resolve_input(client, clean, output_mode, share_multi, file_multi)
+    
+    if result_data["type"] == "collection":
+        objects = result_data["objects"]
+        total = result_data["total"]
+        ui.warn(f"Collection detected with {total} total items.")
+        ui.info("Note: This tool is intended for single-asset lookup. Here are the first 3 items:")
+        for obj in objects:
+            obj_type = str(obj.get("object_type", "Unknown")).capitalize()
+            obj_title = str(obj.get("title", "Untitled"))
+            ui.info(f"  - {obj_type}: {obj_title}")
+        if total > 3:
+            ui.info(f"  ... and {total - 3} more items.")
         return
-    if clean.lower().endswith((".xlsx", ".xls")) and os.path.exists(clean):
-        raise RuntimeError("XLSX input is not supported in the dependency-free build. Save as CSV and retry.")
-    results = resolve_input(client, clean, output_mode, share_multi, file_multi)
+        
+    results = result_data["results"]
     print_lookup(ui, results, args.json, args.uri_only)
     if args.copy and results and results[0].get("paths"):
         if copy_to_clipboard(str(results[0]["paths"][0])):
@@ -1152,23 +1058,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         client = IconikClient(Auth(host=host, app_id=app_id, auth_token=auth_token))
         target = args.input or args.target
         if target:
+            ui.progress("Looking up...")
             run_target(ui, client, target, output_mode, share_multi, file_multi, args)
+            ui.progress_done()
         else:
             interactive_loop(ui, client, output_mode, share_multi, file_multi, args)
         return 0
     except KeyboardInterrupt:
+        ui.progress_done()
         ui.err("Interrupted.")
         return 130
     except PermissionError as exc:
+        ui.progress_done()
         ui.err(str(exc))
         return 3
     except FileNotFoundError:
+        ui.progress_done()
         ui.err("Object not found. Check the link/ID and your access.")
         return 4
     except Exception as exc:
+        ui.progress_done()
         ui.err(str(exc))
         return 2
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
