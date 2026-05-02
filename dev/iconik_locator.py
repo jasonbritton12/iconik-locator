@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
-VERSION = "6.0.1"
+VERSION = "6.0.2"
 APP_NAME = "Iconik Storage Locator"
 CONFIG_DIR = os.path.join(
     os.path.expanduser("~"), "Library", "Application Support", "IconikLocator"
@@ -495,7 +495,7 @@ def reverse_lookup(client: IconikClient, uri: str) -> Dict[str, Any]:
         pass  # Proceed without scoping — still useful.
 
     payload: Dict[str, Any] = {
-        "query": f'files.path:"{key}"',
+        "query": 'files.path:"{}"'.format(key.replace('\\', '\\\\').replace('"', '\\"')),
         "doc_types": ["assets"],
     }
     if storage_filter:
@@ -507,7 +507,7 @@ def reverse_lookup(client: IconikClient, uri: str) -> Dict[str, Any]:
         # Fallback: search by filename only (less precise).
         filename = key.split("/")[-1]
         if filename != key:
-            payload["query"] = f'files.name:"{filename}"'
+            payload["query"] = 'files.name:"{}"'.format(filename.replace('\\', '\\\\').replace('"', '\\"'))
             res = client.post("/API/search/v1/search/", payload)
             objects = objects_from(res)
 
@@ -1085,6 +1085,22 @@ def run_target(
         
     if result_data["type"] == "reverse_list":
         objects = result_data["results"]
+        if args.json:
+            json_out = {
+                "version": VERSION,
+                "type": "reverse_lookup",
+                "query": result_data["id"],
+                "assets": [
+                    {
+                        "id": obj.get("id"),
+                        "title": obj.get("title"),
+                        "url": f"{client.auth.host.rstrip('/')}/asset/{obj.get('id')}"
+                    }
+                    for obj in objects
+                ]
+            }
+            print(json.dumps(json_out, ensure_ascii=False, indent=2))
+            return
         if not objects:
             ui.output_box("Outputs (0)", "No Iconik assets found matching that storage path.")
             return
