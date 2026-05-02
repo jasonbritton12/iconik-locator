@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
-VERSION = "6.0.2"
+VERSION = "6.0.3"
 APP_NAME = "Iconik Storage Locator"
 CONFIG_DIR = os.path.join(
     os.path.expanduser("~"), "Library", "Application Support", "IconikLocator"
@@ -281,6 +281,13 @@ class IconikClient:
                     return {}
                 return json.loads(raw.decode("utf-8"))
             except urllib.error.HTTPError as e:
+                if e.code == 400:
+                    # Capture the response body for diagnostics.
+                    try:
+                        err_body = e.read().decode("utf-8", errors="replace")
+                    except Exception:
+                        err_body = ""
+                    raise RuntimeError(f"Bad request (400): {err_body[:300]}") from e
                 if e.code == 401:
                     raise PermissionError("Unauthorized. Check App-ID and Auth-Token.") from e
                 if e.code == 403:
@@ -480,36 +487,23 @@ def reverse_lookup(client: IconikClient, uri: str) -> Dict[str, Any]:
         raise ValueError("Invalid S3 URI format.")
     bucket, key = m.group(1), m.group(2)
     key = key.strip("/")
+    filename = key.split("/")[-1]
 
-    # Try to scope search by storage_id if bucket maps to a known storage.
-    storage_filter: List[Dict[str, Any]] = []
-    try:
-        smap = client.storage_map()
-        matching_ids = [
-            sid for sid, info in smap.items()
-            if bucket.lower() in (info.get("storage_name") or "").lower()
-        ]
-        if matching_ids:
-            storage_filter = [{"terms": {"files.storage_id": matching_ids}}]
-    except Exception:
-        pass  # Proceed without scoping — still useful.
-
+    # Primary search: exact path match.
     payload: Dict[str, Any] = {
-        "query": 'files.path:"{}"'.format(key.replace('\\', '\\\\').replace('"', '\\"')),
+        "query": key,
         "doc_types": ["assets"],
+        "search_fields": ["files.path"],
     }
-    if storage_filter:
-        payload["filter"] = {"bool": {"must": storage_filter}}
     res = client.post("/API/search/v1/search/", payload)
 
     objects = objects_from(res)
-    if not objects:
+    if not objects and filename != key:
         # Fallback: search by filename only (less precise).
-        filename = key.split("/")[-1]
-        if filename != key:
-            payload["query"] = 'files.name:"{}"'.format(filename.replace('\\', '\\\\').replace('"', '\\"'))
-            res = client.post("/API/search/v1/search/", payload)
-            objects = objects_from(res)
+        payload["query"] = filename
+        payload["search_fields"] = ["files.name"]
+        res = client.post("/API/search/v1/search/", payload)
+        objects = objects_from(res)
 
     return {
         "type": "reverse_list",

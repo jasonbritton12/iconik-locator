@@ -174,29 +174,32 @@ class TestReverseLookup(unittest.TestCase):
         with self.assertRaises(ValueError):
             loc.reverse_lookup(client, "not-an-s3-uri")
 
-    def test_bucket_scoping_with_storage_map(self):
-        """When storage_map matches the bucket, a filter should be added."""
-        asset_obj = {"id": "eee-fff", "title": "Scoped Asset"}
+    def test_bucket_scoping_removed(self):
+        """Bucket scoping was removed — no filter should be in the payload."""
+        asset_obj = {"id": "eee-fff", "title": "Asset"}
         client = self._mock_client([{"objects": [asset_obj]}])
         client.storage_map.return_value = {
             "storage-1": {"storage_name": "mybucket-production"}
         }
         result = loc.reverse_lookup(client, "s3://mybucket-production/key.mov")
-        # Verify the search payload included the filter.
         call_args = client.post.call_args
         payload = call_args[0][1]
-        self.assertIn("filter", payload)
+        self.assertNotIn("filter", payload)
+        self.assertEqual(result["results"][0]["id"], "eee-fff")
 
-    def test_injection_characters_escaped(self):
-        """Verify special characters in S3 key don't break the query."""
+    def test_search_fields_used(self):
+        """Verify search_fields is set to files.path for the primary search."""
+        client = self._mock_client([{"objects": [{"id": "x", "title": "X"}]}])
+        loc.reverse_lookup(client, "s3://bucket/path/to/file.mov")
+        payload = client.post.call_args[0][1]
+        self.assertEqual(payload["search_fields"], ["files.path"])
+        self.assertEqual(payload["query"], "path/to/file.mov")
+
+    def test_special_characters_in_key(self):
+        """Verify special characters in S3 key don't crash the lookup."""
         # Two responses: exact path (empty) + filename fallback (empty).
         client = self._mock_client([{"objects": []}, {"objects": []}])
-        # This URI has double quotes and backslashes.
-        result = loc.reverse_lookup(client, 's3://bucket/path/with"quotes\\and\\backslash.mov')
-        # Should not raise, and the first query should have escaped characters.
-        first_call_payload = client.post.call_args_list[0][0][1]
-        query = first_call_payload["query"]
-        self.assertNotIn('path/with"quotes', query)  # Raw quotes should be escaped.
+        result = loc.reverse_lookup(client, 's3://bucket/path/with"quotes.mov')
         self.assertEqual(result["type"], "reverse_list")
 
 
