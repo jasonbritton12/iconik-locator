@@ -2,6 +2,15 @@
 
 The Iconik Storage Locator is a tool designed to quickly find the physical storage location (S3 URIs, HTTPS URLs, or local paths) of assets in Iconik.
 
+## Download Iconik Locator
+
+Get the latest version below. Extract the `.zip` and run the executable from your terminal.
+
+* [**Download for macOS (Apple Silicon / M1/M2/M3)**](https://github.com/jasonbritton12/iconik-locator/releases/latest/download/iconik_locator_arm64.zip)
+* [**Download for macOS (Intel / x86_64)**](https://github.com/jasonbritton12/iconik-locator/releases/latest/download/iconik_locator_x86_64.zip)
+
+> **Note:** If you get a security warning on macOS, you may need to go to *System Settings > Privacy & Security* to allow the application to run, or clear the quarantine attribute via terminal: `xattr -d com.apple.quarantine iconik_locator`
+
 ## Features
 
 - Paste one Iconik asset link, share link, or asset UUID.
