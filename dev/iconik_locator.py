@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
-VERSION = "6.0.3"
+VERSION = "6.0.4"
 APP_NAME = "Iconik Storage Locator"
 CONFIG_DIR = os.path.join(
     os.path.expanduser("~"), "Library", "Application Support", "IconikLocator"
@@ -281,13 +281,13 @@ class IconikClient:
                     return {}
                 return json.loads(raw.decode("utf-8"))
             except urllib.error.HTTPError as e:
-                if e.code == 400:
+                if e.code in (400, 422):
                     # Capture the response body for diagnostics.
                     try:
                         err_body = e.read().decode("utf-8", errors="replace")
                     except Exception:
                         err_body = ""
-                    raise RuntimeError(f"Bad request (400): {err_body[:300]}") from e
+                    raise RuntimeError(f"API error ({e.code}): {err_body[:300]}") from e
                 if e.code == 401:
                     raise PermissionError("Unauthorized. Check App-ID and Auth-Token.") from e
                 if e.code == 403:
@@ -489,25 +489,24 @@ def reverse_lookup(client: IconikClient, uri: str) -> Dict[str, Any]:
     key = key.strip("/")
     filename = key.split("/")[-1]
 
-    # Primary search: exact path match.
+    # Primary search: exact path match using Iconik's query syntax.
     payload: Dict[str, Any] = {
-        "query": key,
+        "query": f'files.path:"{key}"',
         "doc_types": ["assets"],
-        "search_fields": ["files.path"],
     }
     res = client.post("/API/search/v1/search/", payload)
 
     objects = objects_from(res)
     if not objects and filename != key:
         # Fallback: search by filename only (less precise).
-        payload["query"] = filename
-        payload["search_fields"] = ["files.name"]
+        payload["query"] = f'files.name:"{filename}"'
         res = client.post("/API/search/v1/search/", payload)
         objects = objects_from(res)
 
     return {
         "type": "reverse_list",
         "id": uri,
+        "bucket": bucket,
         "results": objects
     }
 
@@ -1079,11 +1078,12 @@ def run_target(
         
     if result_data["type"] == "reverse_list":
         objects = result_data["results"]
+        s3_uri = result_data["id"]
         if args.json:
             json_out = {
                 "version": VERSION,
                 "type": "reverse_lookup",
-                "query": result_data["id"],
+                "query": s3_uri,
                 "assets": [
                     {
                         "id": obj.get("id"),
@@ -1095,22 +1095,30 @@ def run_target(
             }
             print(json.dumps(json_out, ensure_ascii=False, indent=2))
             return
+
+        # Visual header — mirrors the forward lookup layout.
+        ui.box("S3 URI", s3_uri)
+
         if not objects:
             ui.output_box("Outputs (0)", "No Iconik assets found matching that storage path.")
             return
-        ui.box("Located Iconik Assets", str(len(objects)))
-        first_url = ""
-        for idx, obj in enumerate(objects, 1):
+
+        # Build the Iconik URL list.
+        urls: List[str] = []
+        for obj in objects:
             asset_id = obj.get("id")
             title = obj.get("title") or "(untitled)"
             url = f"{client.auth.host.rstrip('/')}/asset/{asset_id}"
-            if not first_url:
-                first_url = url
-            prefix = f"Asset {idx}" if len(objects) > 1 else "Asset"
+            urls.append(url)
+            prefix = f"Asset {len(urls)}" if len(objects) > 1 else "Asset"
             ui.box(prefix, f"{title}\n{asset_id}")
-            ui.output_box("Iconik URL", url)
-        if args.copy and first_url:
-            if copy_to_clipboard(first_url):
+
+        # Output box with all URLs — matches the forward lookup style.
+        label = "Iconik URL" if len(urls) == 1 else f"Iconik URLs ({len(urls)})"
+        ui.output_box(label, "\n".join(urls))
+
+        if args.copy and urls:
+            if copy_to_clipboard(urls[0]):
                 ui.note("Copied first Iconik URL to clipboard.")
             else:
                 ui.warn("Could not copy to clipboard.")

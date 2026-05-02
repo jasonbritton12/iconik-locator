@@ -174,26 +174,25 @@ class TestReverseLookup(unittest.TestCase):
         with self.assertRaises(ValueError):
             loc.reverse_lookup(client, "not-an-s3-uri")
 
-    def test_bucket_scoping_removed(self):
-        """Bucket scoping was removed — no filter should be in the payload."""
+    def test_no_filter_in_payload(self):
+        """No filter structure should be in the search payload."""
         asset_obj = {"id": "eee-fff", "title": "Asset"}
         client = self._mock_client([{"objects": [asset_obj]}])
-        client.storage_map.return_value = {
-            "storage-1": {"storage_name": "mybucket-production"}
-        }
         result = loc.reverse_lookup(client, "s3://mybucket-production/key.mov")
         call_args = client.post.call_args
         payload = call_args[0][1]
         self.assertNotIn("filter", payload)
+        self.assertNotIn("search_fields", payload)
         self.assertEqual(result["results"][0]["id"], "eee-fff")
+        self.assertEqual(result["bucket"], "mybucket-production")
 
-    def test_search_fields_used(self):
-        """Verify search_fields is set to files.path for the primary search."""
+    def test_query_uses_field_scoped_syntax(self):
+        """Verify query uses files.path:\"key\" format that Iconik expects."""
         client = self._mock_client([{"objects": [{"id": "x", "title": "X"}]}])
         loc.reverse_lookup(client, "s3://bucket/path/to/file.mov")
         payload = client.post.call_args[0][1]
-        self.assertEqual(payload["search_fields"], ["files.path"])
-        self.assertEqual(payload["query"], "path/to/file.mov")
+        self.assertEqual(payload["query"], 'files.path:"path/to/file.mov"')
+        self.assertNotIn("search_fields", payload)
 
     def test_special_characters_in_key(self):
         """Verify special characters in S3 key don't crash the lookup."""
