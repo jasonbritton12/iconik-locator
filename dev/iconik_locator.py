@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
-VERSION = "v5_0_0"
+VERSION = "6.0.0"
 APP_NAME = "Iconik Storage Locator"
 CONFIG_DIR = os.path.join(
     os.path.expanduser("~"), "Library", "Application Support", "IconikLocator"
@@ -62,6 +62,7 @@ ASSET_URL_RE = re.compile(r"/assets?/([0-9a-f-]{36})(?:/|$)", re.I)
 COLLECTION_URL_RE = re.compile(r"/collections?/([0-9a-f-]{36})(?:/|$)", re.I)
 SHARE_PATH_RE = re.compile(r"/shares?/([A-Za-z0-9_-]+)(?:/|$)", re.I)
 SHORT_SHARE_RE = re.compile(r"/u/([A-Za-z0-9_-]+)(?:/|$)", re.I)
+S3_URI_RE = re.compile(r"^s3://([^/]+)/(.*)$", re.I)
 
 VALID_OUTPUTS = ("HTTPS", "S3", "FULL")
 VALID_MULTI = ("ERROR", "FIRST", "ALL")
@@ -303,6 +304,49 @@ class IconikClient:
             raise RuntimeError(str(last_err))
         raise RuntimeError("Request failed.")
 
+    def post(self, path: str, json_data: dict) -> Any:
+        url = self._abs_url(path)
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "App-ID": self.auth.app_id,
+            "Auth-Token": self.auth.auth_token,
+        }
+        data = json.dumps(json_data).encode("utf-8")
+        last_err: Optional[BaseException] = None
+        for attempt in range(self.retries):
+            try:
+                req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+                with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                    raw = resp.read()
+                if not raw:
+                    return {}
+                return json.loads(raw.decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                if e.code == 401:
+                    raise PermissionError("Unauthorized. Check App-ID and Auth-Token.") from e
+                if e.code == 403:
+                    raise PermissionError(
+                        "Forbidden. The user needs search access permissions."
+                    ) from e
+                if e.code == 404:
+                    raise FileNotFoundError(path) from e
+                if e.code in (429, 500, 502, 503, 504) and attempt < self.retries - 1:
+                    sleep_s = retry_delay(e, attempt)
+                    time.sleep(sleep_s)
+                    last_err = e
+                    continue
+                raise
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+                if attempt < self.retries - 1:
+                    time.sleep(min(2 ** attempt, 20))
+                    last_err = e
+                    continue
+                raise
+        if last_err:
+            raise RuntimeError(str(last_err))
+        raise RuntimeError("Request failed.")
+
     def get_asset(self, asset_id: str) -> Dict[str, Any]:
         try:
             data = self.get(f"/API/assets/v1/assets/{asset_id}/")
@@ -459,9 +503,39 @@ def parse_target(raw: str) -> Tuple[str, str]:
         if m:
             return ("asset", m.group(1))
         raise ValueError("Unrecognized Iconik URL.")
+    if S3_URI_RE.match(s):
+        return ("reverse", s)
     if UUID_RE.match(s):
         return ("asset", s)
     return ("share", s)
+
+
+def reverse_lookup(client: IconikClient, uri: str) -> Dict[str, Any]:
+    m = S3_URI_RE.match(uri)
+    if not m:
+        raise ValueError("Invalid S3 URI format.")
+    bucket, key = m.group(1), m.group(2)
+    key = key.strip("/")
+    
+    payload = {
+        "query": f'files.path:"{key}"',
+        "doc_types": ["assets"]
+    }
+    res = client.post("/API/search/v1/search/", payload)
+    
+    objects = objects_from(res)
+    if not objects:
+        filename = key.split("/")[-1]
+        if filename != key:
+            payload["query"] = f'files.name:"{filename}"'
+            res = client.post("/API/search/v1/search/", payload)
+            objects = objects_from(res)
+
+    return {
+        "type": "reverse_list",
+        "id": uri,
+        "results": objects
+    }
 
 
 def choose_file(files: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
@@ -828,6 +902,9 @@ def resolve_input(
             "objects": objects[:3]
         }
         
+    if target_type == "reverse":
+        return reverse_lookup(client, raw)
+        
     asset_ids: List[str]
     if target_type == "asset":
         asset_ids = [target_id]
@@ -1023,6 +1100,21 @@ def run_target(
             ui.info(f"  - {obj_type}: {obj_title}")
         if total > 3:
             ui.info(f"  ... and {total - 3} more items.")
+        return
+        
+    if result_data["type"] == "reverse_list":
+        objects = result_data["results"]
+        if not objects:
+            ui.output_box("Outputs (0)", "No Iconik assets found matching that storage path.")
+            return
+        ui.box("Located Iconik Assets", str(len(objects)))
+        for idx, obj in enumerate(objects, 1):
+            asset_id = obj.get("id")
+            title = obj.get("title") or "(untitled)"
+            url = f"{client.auth.host.rstrip('/')}/asset/{asset_id}"
+            prefix = f"Asset {idx}" if len(objects) > 1 else "Asset"
+            ui.box(prefix, f"{title}\n{asset_id}")
+            ui.output_box("Iconik URL", url)
         return
         
     results = result_data["results"]

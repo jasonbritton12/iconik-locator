@@ -13,13 +13,14 @@ Get the latest version below. Extract the `.zip` and run the executable from you
 
 ## Features
 
-* Paste one Iconik asset link, share link, or asset UUID.
+* Paste one Iconik asset link, share link, or asset UUID to get storage details.
+* **Reverse Lookup**: Paste an `s3://` URI to instantly find its corresponding Iconik Asset URL.
 * Get the S3 URI directly in Terminal.
 * If the storage URL cannot be converted to `s3://bucket/key`, the tool prints the best fallback URL returned by Iconik.
 * For local, Lucid Link, or other non-S3 storage, the tool shows the storage path from Iconik file metadata when available.
 * Located URI lines include online/offline status.
 * `Output` / `Outputs` include only online storage locations.
-* **Interactive Mode**: Rapidly perform multiple lookups in succession.
+* **Interactive Mode**: Rapidly perform multiple lookups in succession seamlessly crossing between Iconik URLs and S3 URIs.
 * Dependency-free runtime (Python standard library only).
 
 ## Deliverables
@@ -61,6 +62,28 @@ Output
 s3://bucket/path/to/file.mov
 ```
 
+### Bidirectional Lookup
+
+The Locator can map from S3 back to Iconik seamlessly. Paste an `s3://` URI:
+
+```sh
+./dist/iconik_locator_arm64 "s3://bucket/path/to/file.mov"
+```
+
+The tool will return the mapped Iconik Assets:
+
+```text
+Located Iconik Assets
+1
+
+Asset
+My Asset Title
+00000000-0000-0000-0000-000000000000
+
+Iconik URL
+https://app.iconik.io/asset/00000000-0000-0000-0000-000000000000
+```
+
 ### Options
 
 * `--uri-only`: Print only the URI.
@@ -80,11 +103,13 @@ s3://bucket/path/to/file.mov
 ## Multi-Asset And Multi-Source Behavior
 
 Share links:
+
 * `--multi ERROR` (Default)
 * `--multi FIRST`
 * `--multi ALL`
 
 Multiple storage locations for the selected file:
+
 * `--multi-files ERROR`
 * `--multi-files FIRST`
 * `--multi-files ALL` (Default)
@@ -113,7 +138,7 @@ chmod +x build.sh
   * `iconik_locator.py`: Main script.
   * `build.sh`: macOS build script.
 * `releases/`: Historical and packaged releases.
-  * `v2.0.3/`: Legacy version.
-  * `v5.0.0/`: Version 5.0.0 source.
+  * `v5.0.0/`: Legacy version.
+  * `v6.0.0/`: Version 6.0.0 source.
 * `docs/`: Additional documentation.
 * `README.md`: This file.
