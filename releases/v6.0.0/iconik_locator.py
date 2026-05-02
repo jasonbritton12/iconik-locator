@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Iconik Storage Locator v5_0_0
+Iconik Storage Locator v6.0.0
 
-Fast dependency-free locator for Iconik storage origins.
+Fast dependency-free bidirectional locator for Iconik storage origins.
 
 Runtime dependencies:
   - Python standard library only when run as source.
@@ -10,8 +10,8 @@ Runtime dependencies:
   - On macOS, credentials are stored in Keychain through /usr/bin/security.
 
 Intentional scope:
-  - Single asset/share/UUID lookup.
-  - CSV/TSV batch lookup.
+  - Single asset/share/UUID lookup (Iconik → S3/storage path).
+  - Reverse lookup from S3 URI back to Iconik asset URL.
   - S3, HTTPS, and FULL presigned output modes.
   - Multi-asset share handling: ERROR, FIRST, ALL.
   - Multi-source file handling: ERROR, FIRST, ALL.
@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
-VERSION = "6.0.0"
+VERSION = "6.0.1"
 APP_NAME = "Iconik Storage Locator"
 CONFIG_DIR = os.path.join(
     os.path.expanduser("~"), "Library", "Application Support", "IconikLocator"
@@ -262,7 +262,7 @@ class IconikClient:
             path = "/" + path
         return host + path
 
-    def get(self, path: str) -> Any:
+    def _request(self, method: str, path: str, json_data: Optional[dict] = None) -> Any:
         url = self._abs_url(path)
         headers = {
             "Accept": "application/json",
@@ -270,10 +270,11 @@ class IconikClient:
             "App-ID": self.auth.app_id,
             "Auth-Token": self.auth.auth_token,
         }
+        body = json.dumps(json_data).encode("utf-8") if json_data is not None else None
         last_err: Optional[BaseException] = None
         for attempt in range(self.retries):
             try:
-                req = urllib.request.Request(url, headers=headers, method="GET")
+                req = urllib.request.Request(url, data=body, headers=headers, method=method)
                 with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
                     raw = resp.read()
                 if not raw:
@@ -284,7 +285,7 @@ class IconikClient:
                     raise PermissionError("Unauthorized. Check App-ID and Auth-Token.") from e
                 if e.code == 403:
                     raise PermissionError(
-                        "Forbidden. The user needs asset/file read access and original-download permission."
+                        "Forbidden. Check that your credentials have the required access permissions."
                     ) from e
                 if e.code == 404:
                     raise FileNotFoundError(path) from e
@@ -304,48 +305,11 @@ class IconikClient:
             raise RuntimeError(str(last_err))
         raise RuntimeError("Request failed.")
 
+    def get(self, path: str) -> Any:
+        return self._request("GET", path)
+
     def post(self, path: str, json_data: dict) -> Any:
-        url = self._abs_url(path)
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "App-ID": self.auth.app_id,
-            "Auth-Token": self.auth.auth_token,
-        }
-        data = json.dumps(json_data).encode("utf-8")
-        last_err: Optional[BaseException] = None
-        for attempt in range(self.retries):
-            try:
-                req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
-                    raw = resp.read()
-                if not raw:
-                    return {}
-                return json.loads(raw.decode("utf-8"))
-            except urllib.error.HTTPError as e:
-                if e.code == 401:
-                    raise PermissionError("Unauthorized. Check App-ID and Auth-Token.") from e
-                if e.code == 403:
-                    raise PermissionError(
-                        "Forbidden. The user needs search access permissions."
-                    ) from e
-                if e.code == 404:
-                    raise FileNotFoundError(path) from e
-                if e.code in (429, 500, 502, 503, 504) and attempt < self.retries - 1:
-                    sleep_s = retry_delay(e, attempt)
-                    time.sleep(sleep_s)
-                    last_err = e
-                    continue
-                raise
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
-                if attempt < self.retries - 1:
-                    time.sleep(min(2 ** attempt, 20))
-                    last_err = e
-                    continue
-                raise
-        if last_err:
-            raise RuntimeError(str(last_err))
-        raise RuntimeError("Request failed.")
+        return self._request("POST", path, json_data)
 
     def get_asset(self, asset_id: str) -> Dict[str, Any]:
         try:
@@ -516,15 +480,31 @@ def reverse_lookup(client: IconikClient, uri: str) -> Dict[str, Any]:
         raise ValueError("Invalid S3 URI format.")
     bucket, key = m.group(1), m.group(2)
     key = key.strip("/")
-    
-    payload = {
+
+    # Try to scope search by storage_id if bucket maps to a known storage.
+    storage_filter: List[Dict[str, Any]] = []
+    try:
+        smap = client.storage_map()
+        matching_ids = [
+            sid for sid, info in smap.items()
+            if bucket.lower() in (info.get("storage_name") or "").lower()
+        ]
+        if matching_ids:
+            storage_filter = [{"terms": {"files.storage_id": matching_ids}}]
+    except Exception:
+        pass  # Proceed without scoping — still useful.
+
+    payload: Dict[str, Any] = {
         "query": f'files.path:"{key}"',
-        "doc_types": ["assets"]
+        "doc_types": ["assets"],
     }
+    if storage_filter:
+        payload["filter"] = {"bool": {"must": storage_filter}}
     res = client.post("/API/search/v1/search/", payload)
-    
+
     objects = objects_from(res)
     if not objects:
+        # Fallback: search by filename only (less precise).
         filename = key.split("/")[-1]
         if filename != key:
             payload["query"] = f'files.name:"{filename}"'
@@ -1043,7 +1023,7 @@ def interactive_loop(ui: UI, client: IconikClient, output_mode: str, share_multi
     ui.note(f"Host: {client.auth.host}  Output: {output_mode}  Share multi: {share_multi}  File multi: {file_multi}")
     ui.info("Welcome to the Iconik Locator interactive mode. Type 'help' at any time for instructions.")
     while True:
-        raw = ui.ask("Paste an Iconik asset/share link, collection URL, or asset UUID (q=quit)")
+        raw = ui.ask("Paste an Iconik link, S3 URI, or asset UUID (q=quit)")
         
         # Check for quit
         if raw.lower() in ("q", "quit", "exit", "no", "n"):
@@ -1051,12 +1031,13 @@ def interactive_loop(ui: UI, client: IconikClient, output_mode: str, share_multi
             
         # Check for help
         if raw.lower() == "help":
-            ui.info("Help: This tool is designed to look up the physical storage path for a given Iconik Asset.")
+            ui.info("Help: Bidirectional lookup between Iconik and cloud storage.")
             ui.info("Supported inputs:")
             ui.info("  - Asset URL (e.g. https://app.iconik.io/asset/...)")
             ui.info("  - Share URL (e.g. https://app.iconik.io/share/...)")
             ui.info("  - Asset UUID")
             ui.info("  - Collection URL (displays first 3 items)")
+            ui.info("  - S3 URI for reverse lookup (e.g. s3://bucket/path/to/file.mov)")
             continue
 
         ui.progress("Looking up...")
@@ -1108,13 +1089,21 @@ def run_target(
             ui.output_box("Outputs (0)", "No Iconik assets found matching that storage path.")
             return
         ui.box("Located Iconik Assets", str(len(objects)))
+        first_url = ""
         for idx, obj in enumerate(objects, 1):
             asset_id = obj.get("id")
             title = obj.get("title") or "(untitled)"
             url = f"{client.auth.host.rstrip('/')}/asset/{asset_id}"
+            if not first_url:
+                first_url = url
             prefix = f"Asset {idx}" if len(objects) > 1 else "Asset"
             ui.box(prefix, f"{title}\n{asset_id}")
             ui.output_box("Iconik URL", url)
+        if args.copy and first_url:
+            if copy_to_clipboard(first_url):
+                ui.note("Copied first Iconik URL to clipboard.")
+            else:
+                ui.warn("Could not copy to clipboard.")
         return
         
     results = result_data["results"]
