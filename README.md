@@ -13,24 +13,24 @@ Get the latest version below. Extract the `.zip` and run the executable from you
 
 ## Features
 
-- Paste one Iconik asset link, share link, or asset UUID.
-- Get the S3 URI directly in Terminal.
-- If the storage URL cannot be converted to `s3://bucket/key`, the tool prints the best fallback URL returned by Iconik.
-- For local, Lucid Link, or other non-S3 storage, the tool shows the storage path from Iconik file metadata when available.
-- Located URI lines include online/offline status.
-- `Output` / `Outputs` include only online storage locations.
-- CSV/TSV batch mode is available for advanced workflows.
-- Dependency-free runtime (Python standard library only).
+* Paste one Iconik asset link, share link, or asset UUID.
+* Get the S3 URI directly in Terminal.
+* If the storage URL cannot be converted to `s3://bucket/key`, the tool prints the best fallback URL returned by Iconik.
+* For local, Lucid Link, or other non-S3 storage, the tool shows the storage path from Iconik file metadata when available.
+* Located URI lines include online/offline status.
+* `Output` / `Outputs` include only online storage locations.
+* **Interactive Mode**: Rapidly perform multiple lookups in succession.
+* Dependency-free runtime (Python standard library only).
 
 ## Deliverables
 
 After build:
 
-- `dist/iconik_locator_arm64`
-- `dist/iconik_locator_arm64.zip`
-- `dist/iconik_locator_x86_64`
-- `dist/iconik_locator_x86_64.zip`
-- `dist/checksums.txt`
+* `dist/iconik_locator_arm64`
+* `dist/iconik_locator_arm64.zip`
+* `dist/iconik_locator_x86_64`
+* `dist/iconik_locator_x86_64.zip`
+* `dist/checksums.txt`
 
 ## Quick Single Lookup
 
@@ -63,9 +63,9 @@ s3://bucket/path/to/file.mov
 
 ### Options
 
-- `--uri-only`: Print only the URI.
-- `--quiet`: Minimal output.
-- `--copy`: Copy the first URI to the macOS clipboard.
+* `--uri-only`: Print only the URI.
+* `--quiet`: Minimal output.
+* `--copy`: Copy the first URI to the macOS clipboard.
 
 ## Output Formats
 
@@ -80,25 +80,24 @@ s3://bucket/path/to/file.mov
 ## Multi-Asset And Multi-Source Behavior
 
 Share links:
-- `--multi ERROR` (Default)
-- `--multi FIRST`
-- `--multi ALL`
+* `--multi ERROR` (Default)
+* `--multi FIRST`
+* `--multi ALL`
 
 Multiple storage locations for the selected file:
-- `--multi-files ERROR`
-- `--multi-files FIRST`
-- `--multi-files ALL` (Default)
+* `--multi-files ERROR`
+* `--multi-files FIRST`
+* `--multi-files ALL` (Default)
 
-## Advanced CSV/TSV Batch
+## Interactive Mode
+
+For high-speed, successive lookups, run the tool without an input argument to enter **Interactive Mode**:
 
 ```sh
-./dist/iconik_locator_arm64 \
-  --input ~/Downloads/iconik_links.csv \
-  --column 0 \
-  --out ~/Downloads/iconik_links_with_storage.csv
+./dist/iconik_locator_arm64
 ```
 
-Batch mode uses a small worker pool by default: `--workers 6`.
+Simply paste an Iconik link or UUID and press Enter. The tool will display the results and immediately prompt for the next one. Type `help` for instructions or `q` to quit.
 
 ## Build
 
@@ -110,12 +109,11 @@ chmod +x build.sh
 
 ## Project Structure
 
-- `dev/`: Development source code and build scripts.
-  - `iconik_locator.py`: Main script.
-  - `build.sh`: macOS build script.
-- `releases/`: Historical and packaged releases.
-  - `v2.0.3/`: Legacy version.
-  - `v5.0.0/`: Version 5.0.0 source.
-- `docs/`: Additional documentation.
-- `README.md`: This file.
-
+* `dev/`: Development source code and build scripts.
+  * `iconik_locator.py`: Main script.
+  * `build.sh`: macOS build script.
+* `releases/`: Historical and packaged releases.
+  * `v2.0.3/`: Legacy version.
+  * `v5.0.0/`: Version 5.0.0 source.
+* `docs/`: Additional documentation.
+* `README.md`: This file.
